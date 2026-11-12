@@ -1,0 +1,16 @@
+# Local toolchain binaries (re-download: https://github.com/arduino/arduino-cli/releases)
+tools/arduino-cli/
+
+# Upstream Tamaguino clone, kept locally for reference only
+# (https://github.com/alojzjakob/Tamaguino)
+tamaguino/
+
+# Local editor / agent settings
+.claude/
+
+# Build output and OS clutter
+build/
+*.elf
+*.hex
+Thumbs.db
+.DS_Store

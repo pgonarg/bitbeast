@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BitBeast Evolution Tool</title>
+<style>
+  :root {
+    --bg: #0d1520; --panel: #142030; --panel2: #1b2a3e; --line: #2a3d55;
+    --text: #dbe6f3; --dim: #8197b0; --accent: #6fd3ff; --off: #0f1c2a;
+    --good: #6be39a; --warn: #ffc861; --bad: #ff7b7b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column;
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 8px;
+           align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0 12px 0 0; }
+  header .sep { flex: 1; }
+  #budget { color: var(--dim); font-size: 13px; }
+  main { display: grid; grid-template-columns: 1fr 380px; gap: 12px; padding: 12px; flex: 1; min-height: 0; }
+  @media (max-width: 1000px) { body { height: auto; } main { grid-template-columns: 1fr; } #graphWrap { height: 70vh; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+  #graphWrap { overflow: auto; padding: 0; position: relative; }
+  #side { overflow: auto; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 8px; }
+  h2:not(:first-child) { margin-top: 18px; }
+  button, .btn { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+           border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; display: inline-block; }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  button.primary { background: #1d4a63; border-color: #2e7397; }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+  button.small { padding: 2px 7px; font-size: 12px; }
+  input[type=file] { display: none; }
+  input[type=text], input[type=number], select {
+    background: var(--off); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 6px; font: inherit; }
+  input[type=number] { width: 70px; }
+  label { color: var(--dim); font-size: 13px; }
+  .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+  .hint { color: var(--dim); font-size: 12px; margin: 4px 0; }
+  .empty { color: var(--dim); }
+  svg { display: block; user-select: none; }
+  .node rect.box { fill: var(--panel2); stroke: var(--line); stroke-width: 1.5; }
+  .node.sel rect.box { stroke: var(--accent); stroke-width: 2.5; }
+  .node.path rect.box { stroke: var(--good); stroke-width: 2.5; }
+  .node.sel.path rect.box { stroke: var(--accent); }
+  .node text { fill: var(--text); font-size: 13px; }
+  .node text.sub { fill: var(--dim); font-size: 11px; }
+  .node .handle { fill: var(--accent); opacity: .0; cursor: crosshair; transition: opacity .15s; }
+  .node:hover .handle, .node.sel .handle { opacity: .9; }
+  .edge path.vis { fill: none; stroke: #4e6a8a; stroke-width: 2; }
+  .edge.hit path.vis { stroke: var(--good); }
+  .edge.onpath path.vis { stroke: var(--good); stroke-width: 3.5; }
+  .edge.sel path.vis { stroke: var(--accent); stroke-width: 3.5; }
+  .edge.shadow path.vis { stroke-dasharray: 5 4; stroke: var(--bad); }
+  .edge path.hitarea { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; }
+  .lbl rect { fill: #0b131d; stroke: var(--line); }
+  .lbl text { fill: var(--text); font-size: 11px; }
+  .badge circle { fill: #0b131d; stroke: #4e6a8a; }
+  .badge text { fill: var(--text); font-size: 10px; }
+  .colhead { fill: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .colbg { fill: rgba(255,255,255,.015); }
+  #tempLine { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; pointer-events: none; }
+  .ruleItem { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
+              margin: 4px 0; display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .ruleItem.sel { border-color: var(--accent); }
+  .ruleItem .txt { flex: 1; font-size: 12px; }
+  .ruleItem .num { color: var(--dim); font-size: 11px; width: 18px; }
+  .problem { font-size: 12px; margin: 3px 0; padding-left: 16px; position: relative; cursor: pointer; }
+  .problem::before { content: "●"; position: absolute; left: 0; }
+  .problem.err::before { color: var(--bad); } .problem.warn::before { color: var(--warn); }
+  .problem.info::before { color: var(--dim); }
+  #simPath { font-size: 13px; margin-top: 6px; }
+  #simPath b { color: var(--good); }
+  .sprPick { display: flex; align-items: center; gap: 6px; }
+  .sprPick img { width: 32px; height: 32px; image-rendering: pixelated; background: #000; border-radius: 3px; }
+  #status { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: #1d4a63;
+            padding: 8px 14px; border-radius: 6px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 9; }
+  #status.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>BitBeast Evolution Tool</h1>
+  <label class="btn">Open species.h…<input type="file" id="fileSpecies" accept=".h"></label>
+  <label class="btn">Load sprites (sprites.h / .txt)…<input type="file" id="fileSprites" accept=".h,.txt"></label>
+  <button id="btnSpriteDraft" title="Use the sprites currently open in sprite-tool.html in this browser">Use Sprite Tool sprites</button>
+  <button id="btnReload" hidden title="Discard the draft and reload BitBeast/species.h + sprites.h from the server">Reload project files</button>
+  <button id="btnNewSpecies">+ Species</button>
+  <button class="primary" id="btnSave">Save species.h</button>
+  <button id="btnCopy">Copy species.h</button>
+  <span class="sep"></span>
+  <label><input type="checkbox" id="showAll"> show all conditions</label>
+  <span id="budget"></span>
+</header>
+
+<main>
+  <section id="graphWrap"><svg id="graph"></svg></section>
+
+  <section id="side">
+    <h2>Selection</h2>
+    <div id="selPanel" class="empty">Click a species or an arrow. Drag from a species' right-hand dot
+      onto another species to add an evolution rule.</div>
+
+    <h2>What-if</h2>
+    <p class="hint">These per-stage values are applied at every stage. Green arrows show the first matching rule
+      for each species; the bold path is what an egg raised this way becomes.</p>
+    <div class="grid2">
+      <label>Care mistakes</label><input type="number" id="simM" value="0" min="0" max="255">
+      <label>Trainings</label><input type="number" id="simT" value="20" min="0" max="255">
+      <label>Battles</label><input type="number" id="simB" value="20" min="0" max="255">
+      <label>Wins</label><input type="number" id="simW" value="17" min="0" max="255">
+      <label>Weight (g)</label><div><input type="number" id="simWt" value="" placeholder="base" min="0" max="99">
+        <span class="hint">blank = each species' base weight</span></div>
+    </div>
+    <div id="simPath"></div>
+
+    <h2>Problems</h2>
+    <div id="problems"></div>
+  </section>
+</main>
+<div id="status"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const STAGES = ["ST_EGG", "ST_FRESH", "ST_TRAINING", "ST_ROOKIE", "ST_CHAMPION", "ST_ULTIMATE"];
+const STAGE_LABEL = ["Egg", "Fresh", "In-Training", "Rookie", "Champion", "Ultimate"];
+const ANY = 255;
+
+// ---------------------------------------------------------------- model
+// species: {name, stage, hunger, strength, poop, sleep (null = NOSLEEP), wake, power, weight, evolveMin, life, spr0, spr1}
+// rules:   {from, to (species objects), minM, maxM, minT, maxT, minB, minWin, minWt, maxWt}
+let species = [], rules = [];
+let sprites = new Map();             // name -> {w,h,px}
+let selection = null;                // {kind:'species'|'rule', obj}
+let baselineBytes = null;
+
+// ---------------------------------------------------------------- parsing species.h
+function parseSpecies(text) {
+  text = text.replace(/\r/g, "");
+  const rowRe = /\{\s*"([^"]*)"\s*,\s*(ST_\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*\{\s*SPR_(\w+)\s*,\s*SPR_(\w+)\s*\}\s*\}/g;
+  const tableStart = text.indexOf("SPECIES[");
+  if (tableStart < 0) throw new Error("No SPECIES[] table found");
+  const tableEnd = text.indexOf("};", tableStart);
+  const table = text.slice(tableStart, tableEnd);
+  const num = v => v === "NOSLEEP" ? null : v === "ANY" ? ANY : parseInt(v);
+  const sp = [];
+  let m;
+  while ((m = rowRe.exec(table))) {
+    const st = STAGES.indexOf(m[2]);
+    if (st < 0) throw new Error("Unknown stage " + m[2]);
+    sp.push({ name: m[1], stage: st, hunger: num(m[3]), strength: num(m[4]), poop: num(m[5]),
+              sleep: num(m[6]), wake: num(m[7]), power: num(m[8]), weight: num(m[9]),
+              evolveMin: num(m[10]), life: num(m[11]), spr0: m[12], spr1: m[13] });
+  }
+  if (!sp.length) throw new Error("SPECIES[] table has no rows I can read");
+
+  // enum names in order -> species (falls back to generated ids for older files)
+  const ids = new Map();
+  const en = text.match(/enum\s+SpeciesId[^{]*\{([^}]*)\}/);
+  if (en) {
+    en[1].split(",").map(s => s.trim().split(/\s|=/)[0]).filter(s => s && s !== "SP_COUNT" && s !== "SP_NONE")
+      .forEach((id, i) => { if (sp[i]) ids.set(id, sp[i]); });
+  }
+  sp.forEach(s => { const id = idFor(s.name); if (!ids.has(id)) ids.set(id, s); });
+
+  const rl = [];
+  const rs = text.indexOf("EVO_RULES[");
+  if (rs >= 0) {
+    const block = text.slice(rs, text.indexOf("};", rs));
+    const ruleRe = /\{\s*(SP_\w+)\s*,\s*(SP_\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*\}/g;
+    const countZero = /EVO_RULE_COUNT\s*=\s*0\s*;/.test(text);
+    while (!countZero && (m = ruleRe.exec(block))) {
+      const from = ids.get(m[1]), to = ids.get(m[2]);
+      if (!from || !to) throw new Error(`Rule refers to unknown species ${!from ? m[1] : m[2]}`);
+      rl.push({ from, to, minM: num(m[3]), maxM: num(m[4]), minT: num(m[5]), maxT: num(m[6]),
+                minB: num(m[7]), minWin: num(m[8]), minWt: num(m[9]), maxWt: num(m[10]) });
+    }
+  }
+  return { species: sp, rules: rl };
+}
+
+// ---------------------------------------------------------------- generating species.h
+function idFor(name) {
+  let id = "SP_" + name.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return id === "SP_" ? "SP_X" : id;
+}
+function idsAll() {          // unique enum ids in species order
+  const used = new Set();
+  return species.map(s => { let id = idFor(s.name), k = 2; while (used.has(id) || id === "SP_COUNT" || id === "SP_NONE") id = idFor(s.name) + "_" + k++; used.add(id); return id; });
+}
+function align(rows) {        // rows of token arrays -> aligned lines
+  const w = [];
+  rows.forEach(r => r.forEach((t, i) => { if (i < r.length - 1) w[i] = Math.max(w[i] || 0, t.length); }));
+  return rows.map(r => r.map((t, i) => i < r.length - 1 ? t.padEnd(w[i]) : t).join(" "));
+}
+function generate() {
+  const ids = idsAll();
+  const idOf = s => ids[species.indexOf(s)];
+  const v = n => n === ANY ? "ANY" : String(n);
+  const L = [
+    "// Species table and evolution rules for BitBeast.",
+    "// Edit visually with tools/evolution-tool.html (or by hand, carefully).",
+    "#pragma once",
+    '#include "types.h"',
+    '#include "sprites.h"',
+    "",
+    "enum SpeciesId : uint8_t {",
+    ...ids.map(id => `  ${id},`),
+    "  SP_COUNT,",
+    "  SP_NONE = 0xFF",
+    "};",
+    "",
+    "const Species SPECIES[SP_COUNT] PROGMEM = {",
+    "  // name, stage, hungerMin, strengthMin, poopMin, sleepHour, wakeHour, power, weight, evolveMin, lifespanDays, {frame0, frame1}",
+    ...align(species.map(s => [`  {"${s.name}",`, STAGES[s.stage] + ",", s.hunger + ",", s.strength + ",", s.poop + ",",
+      (s.sleep === null ? "NOSLEEP" : String(s.sleep)) + ",", s.wake + ",", s.power + ",", s.weight + ",",
+      s.evolveMin + ",", s.life + ",", `{SPR_${s.spr0},`, `SPR_${s.spr1}}},`])),
+    "};",
+    "",
+  ];
+  const ordered = orderedRules();
+  if (ordered.length) {
+    L.push("const EvoRule EVO_RULES[] PROGMEM = {",
+           "  // from, to, minMistakes, maxMistakes, minTrain, maxTrain, minBattles, minWinPct, minWeight, maxWeight");
+    L.push(...align(ordered.map(r => [`  {${idOf(r.from)},`, idOf(r.to) + ",", v(r.minM) + ",", v(r.maxM) + ",",
+      v(r.minT) + ",", v(r.maxT) + ",", v(r.minB) + ",", v(r.minWin) + ",", v(r.minWt) + ",", v(r.maxWt) + "},"])));
+    L.push("};", "const uint8_t EVO_RULE_COUNT = sizeof(EVO_RULES) / sizeof(EVO_RULES[0]);");
+  } else {
+    L.push("const EvoRule EVO_RULES[1] PROGMEM = {{SP_NONE, SP_NONE, 0, 0, 0, 0, 0, 0, 0, 0}};",
+           "const uint8_t EVO_RULE_COUNT = 0;");
+  }
+  L.push("", 'const char STAGE_NAMES[6][9] PROGMEM = {"Egg", "Fresh", "In-Train", "Rookie", "Champion", "Ultimate"};');
+  return L.join("\n") + "\n";
+}
+// Rules grouped by source species (in species order), keeping priority order inside each group.
+function orderedRules() { return species.flatMap(s => rules.filter(r => r.from === s)); }
+function rulesFrom(s) { return rules.filter(r => r.from === s); }
+
+function flashBytes() {
+  const sprNames = new Set(species.flatMap(s => [s.spr0, s.spr1]));
+  return { species: species.length * 25, rules: rules.length * 10, spr: sprNames.size };
+}
+
+// ---------------------------------------------------------------- rule logic (mirrors chooseEvolution)
+function ruleMatches(r, c) {
+  if (c.m < r.minM || c.m > r.maxM) return false;
+  if (c.t < r.minT || c.t > r.maxT) return false;
+  if (c.b < r.minB) return false;
+  if (r.minWin && (c.b === 0 || c.w * 100 < c.b * r.minWin)) return false;
+  if (c.wt < r.minWt || c.wt > r.maxWt) return false;
+  return true;
+}
+function firstMatch(s, c) { return rulesFrom(s).find(r => ruleMatches(r, c)) || null; }
+function isCatchAll(r) {
+  return r.minM === 0 && r.maxM === ANY && r.minT === 0 && r.maxT === ANY && r.minB === 0 && !r.minWin && r.minWt === 0 && r.maxWt === ANY;
+}
+function describe(r) {
+  const p = [];
+  const range = (a, b, unit) => {
+    if (a > 0 && b !== ANY) p.push(a === b ? `${a} ${unit}` : `${a}–${b} ${unit}`);
+    else if (b !== ANY) p.push(`≤${b} ${unit}`);
+    else if (a > 0) p.push(`≥${a} ${unit}`);
+  };
+  range(r.minM, r.maxM, "mistakes");
+  range(r.minT, r.maxT, "train");
+  if (r.minB) p.push(`≥${r.minB} battles`);
+  if (r.minWin) p.push(`≥${r.minWin}% wins`);
+  range(r.minWt, r.maxWt, "g");
+  return p.length ? p.join(", ") : "always";
+}
+
+// ---------------------------------------------------------------- sprites
+function parseSpriteTxt(text) {
+  const out = new Map(); let cur = null;
+  for (const raw of text.replace(/\r/g, "").split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith(";")) continue;
+    if (line.startsWith("@")) { const p = line.slice(1).split(/\s+/); cur = { name: p[0], w: +p[1], h: +p[2], rows: [] }; out.set(cur.name, cur); continue; }
+    if (cur && cur.rows.length < cur.h) cur.rows.push(line);
+  }
+  for (const [k, s] of out) {
+    const px = new Uint8Array(s.w * s.h);
+    s.rows.forEach((r, y) => { for (let x = 0; x < s.w; x++) px[y * s.w + x] = r[x] === "#" ? 1 : 0; });
+    out.set(k, { w: s.w, h: s.h, px });
+  }
+  return out;
+}
+function parseSpriteH(text) {
+  const out = new Map();
+  const re = /\/\/\s*(\w+)\s+(\d+)x(\d+)\s*\n\s*const\s+uint8_t\s+SPR_(\w+)\s*\[\s*\]\s*PROGMEM\s*=\s*\{([^}]*)\}/g;
+  let m;
+  while ((m = re.exec(text.replace(/\r/g, "")))) {
+    const w = +m[2], h = +m[3], bpr = Math.ceil(w / 8);
+    const bytes = (m[5].match(/0x[0-9a-fA-F]+|\b\d+\b/g) || []).map(Number);
+    const px = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) px[y * w + x] = (bytes[y * bpr + (x >> 3)] & (0x80 >> (x & 7))) ? 1 : 0;
+    out.set(m[4], { w, h, px });
+  }
+  return out;
+}
+const urlCache = new Map();
+function spriteUrl(name) {
+  if (urlCache.has(name)) return urlCache.get(name);
+  const s = sprites.get(name);
+  const c = document.createElement("canvas");
+  const S = 3;
+  if (s) {
+    c.width = s.w * S; c.height = s.h * S;
+    const g = c.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, c.width, c.height); g.fillStyle = "#e8f6ff";
+    for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) if (s.px[y * s.w + x]) g.fillRect(x * S, y * S, S, S);
+  } else {
+    c.width = c.height = 48;
+    const g = c.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, 48, 48);
+    g.fillStyle = "#ff7b7b"; g.font = "bold 28px sans-serif"; g.textAlign = "center"; g.fillText("?", 24, 34);
+  }
+  const u = c.toDataURL(); urlCache.set(name, u); return u;
+}
+function setSprites(map, label) { sprites = map; urlCache.clear(); render(); saveDraft(); toast(`Loaded ${map.size} sprites${label ? " from " + label : ""}`); }
+
+// ---------------------------------------------------------------- layout + graph
+const COLW = 178, NW = 138, NH = 64, GAP = 16, TOP = 44, LEFT = 16;
+let pos = new Map();
+function layout() {
+  pos = new Map();
+  const cols = STAGES.map(() => []);
+  species.forEach(s => cols[s.stage].push(s));
+  const rowOf = new Map();
+  cols.forEach((col, st) => {
+    const scored = col.map((s, i) => {
+      const parents = rules.filter(r => r.to === s && r.from !== s && r.from.stage < st && rowOf.has(r.from)).map(r => rowOf.get(r.from));
+      const bary = parents.length ? parents.reduce((a, b) => a + b, 0) / parents.length : Infinity;
+      return { s, bary, i: species.indexOf(s) };
+    });
+    if (st > 0) scored.sort((a, b) => (a.bary - b.bary) || (a.i - b.i));
+    // spread rows so a column lines up roughly with its parents
+    let next = 0;
+    scored.forEach(({ s, bary }) => {
+      let row = isFinite(bary) ? Math.max(next, Math.round(bary - 0.0001)) : next;
+      if (!isFinite(bary)) row = next;
+      rowOf.set(s, row); next = row + 1;
+      pos.set(s, { x: LEFT + st * COLW, y: TOP + row * (NH + GAP) });
+    });
+  });
+}
+
+const SVGNS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function edgeGeom(r) {
+  const a = pos.get(r.from), b = pos.get(r.to);
+  const x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x, y2 = b.y + NH / 2;
+  if (x2 > x1 + 10) {
+    const dx = (x2 - x1) / 2;
+    return { d: `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`, mx: (x1 + x2) / 2, my: (y1 + y2) / 2, x1, y1 };
+  }
+  // backwards / same column: loop underneath
+  const yb = Math.max(a.y, b.y) + NH + 26;
+  return { d: `M${x1},${y1} C${x1 + 60},${y1} ${x1 + 60},${yb} ${(x1 + x2) / 2},${yb} S${x2 - 60},${y2} ${x2},${y2}`, mx: (x1 + x2) / 2, my: yb, x1, y1 };
+}
+
+let simCtx = null, simHits = new Set(), simPathNodes = new Set(), simPathEdges = new Set();
+function render() {
+  layout();
+  const svg = $("graph"); svg.innerHTML = "";
+  let maxY = 0; pos.forEach(p => { maxY = Math.max(maxY, p.y); });
+  const W = LEFT * 2 + STAGES.length * COLW - (COLW - NW), H = maxY + NH + 60;
+  svg.setAttribute("width", W); svg.setAttribute("height", H);
+  STAGES.forEach((_, st) => {
+    el("rect", { x: LEFT + st * COLW - 8, y: 8, width: NW + 16, height: H - 16, rx: 8, class: "colbg" }, svg);
+    el("text", { x: LEFT + st * COLW, y: 28, class: "colhead" }, svg).textContent = STAGE_LABEL[st];
+  });
+  runSim();
+  const shadowed = shadowedRules();
+  const edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), labelLayer = el("g", {}, svg);
+  const showAll = $("showAll").checked;
+
+  for (const r of rules) {
+    if (!pos.has(r.from) || !pos.has(r.to)) continue;
+    const g = edgeGeom(r);
+    const cls = ["edge"];
+    if (simHits.has(r)) cls.push("hit");
+    if (simPathEdges.has(r)) cls.push("onpath");
+    if (shadowed.has(r)) cls.push("shadow");
+    if (selection && selection.obj === r) cls.push("sel");
+    const grp = el("g", { class: cls.join(" ") }, edgeLayer);
+    el("path", { d: g.d, class: "vis", "marker-end": "url(#arrow)" }, grp);
+    const hit = el("path", { d: g.d, class: "hitarea" }, grp);
+    el("title", {}, hit).textContent = `${r.from.name} → ${r.to.name}: ${describe(r)}`;
+    hit.addEventListener("click", ev => { ev.stopPropagation(); select("rule", r); });
+    const siblings = rulesFrom(r.from);
+    if (siblings.length > 1) {
+      const b = el("g", { class: "badge" }, labelLayer);
+      el("circle", { cx: g.x1 + 12, cy: g.y1 + (siblings.indexOf(r) - (siblings.length - 1) / 2) * 13, r: 6.5 }, b);
+      el("text", { x: g.x1 + 12, y: g.y1 + (siblings.indexOf(r) - (siblings.length - 1) / 2) * 13 + 3.5, "text-anchor": "middle" }, b).textContent = siblings.indexOf(r) + 1;
+    }
+    const showLbl = showAll || (selection && (selection.obj === r || selection.obj === r.from));
+    if (showLbl) {
+      const txt = describe(r);
+      const w = txt.length * 6 + 10;
+      const lg = el("g", { class: "edge lbl" }, labelLayer);
+      el("rect", { x: g.mx - w / 2, y: g.my - 9, width: w, height: 17, rx: 4 }, lg);
+      el("text", { x: g.mx, y: g.my + 4, "text-anchor": "middle" }, lg).textContent = txt;
+      lg.style.cursor = "pointer";
+      lg.addEventListener("click", ev => { ev.stopPropagation(); select("rule", r); });
+    }
+  }
+  const defs = el("defs", {}, svg);
+  const mk = el("marker", { id: "arrow", viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs);
+  el("path", { d: "M0,0 L10,5 L0,10 z", fill: "#6f8db0" }, mk);
+
+  species.forEach((s, idx) => {
+    const p = pos.get(s);
+    const cls = ["node"];
+    if (selection && selection.obj === s) cls.push("sel");
+    if (simPathNodes.has(s)) cls.push("path");
+    const g = el("g", { class: cls.join(" "), transform: `translate(${p.x},${p.y})`, "data-node": idx }, nodeLayer);
+    el("rect", { class: "box", width: NW, height: NH, rx: 8 }, g);
+    el("image", { href: spriteUrl(s.spr0), x: 8, y: 8, width: 48, height: 48, "data-spr0": s.spr0, "data-spr1": s.spr1, style: "image-rendering: pixelated" }, g);
+    el("text", { x: 64, y: 26 }, g).textContent = s.name;
+    el("text", { x: 64, y: 42, class: "sub" }, g).textContent = s.evolveMin ? `evolves ${fmtMin(s.evolveMin)}` : "final form";
+    el("text", { x: 64, y: 56, class: "sub" }, g).textContent = idx === 0 ? "★ starting egg" : `power ${s.power}`;
+    const h = el("circle", { class: "handle", cx: NW, cy: NH / 2, r: 7 }, g);
+    el("title", {}, h).textContent = "Drag onto another species to add a rule";
+    h.addEventListener("pointerdown", ev => startConnect(ev, s));
+    g.addEventListener("click", ev => { ev.stopPropagation(); select("species", s); });
+  });
+  el("line", { id: "tempLine", x1: 0, y1: 0, x2: 0, y2: 0, visibility: "hidden" }, svg);
+
+  renderSide();
+  renderProblems();
+  const fb = flashBytes();
+  const total = fb.species + fb.rules;
+  $("budget").textContent = `${species.length} species · ${rules.length} rules · tables ${total} B` +
+    (baselineBytes !== null && total !== baselineBytes ? ` (${total > baselineBytes ? "+" : ""}${total - baselineBytes} B vs file)` : "");
+}
+function fmtMin(m) { return m < 120 ? `${m} min` : m % 60 ? `${(m / 60).toFixed(1)} h` : `${m / 60} h`; }
+
+// two-frame idle animation
+let tick = 0;
+setInterval(() => {
+  tick ^= 1;
+  document.querySelectorAll("#graph image[data-spr0]").forEach(img => img.setAttribute("href", spriteUrl(img.dataset[tick ? "spr1" : "spr0"])));
+}, 500);
+
+// drag-to-connect
+let connectFrom = null;
+function svgPoint(ev) { const r = $("graph").getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; }
+function startConnect(ev, s) {
+  ev.stopPropagation(); ev.preventDefault();
+  connectFrom = s;
+  const p = pos.get(s), line = $("tempLine");
+  line.setAttribute("x1", p.x + NW); line.setAttribute("y1", p.y + NH / 2);
+  line.setAttribute("x2", p.x + NW); line.setAttribute("y2", p.y + NH / 2);
+  line.setAttribute("visibility", "visible");
+}
+window.addEventListener("pointermove", ev => {
+  if (!connectFrom) return;
+  const q = svgPoint(ev); $("tempLine").setAttribute("x2", q.x); $("tempLine").setAttribute("y2", q.y);
+});
+window.addEventListener("pointerup", ev => {
+  if (!connectFrom) return;
+  const from = connectFrom; connectFrom = null;
+  $("tempLine").setAttribute("visibility", "hidden");
+  const target = document.elementFromPoint(ev.clientX, ev.clientY);
+  const node = target && target.closest && target.closest("[data-node]");
+  if (!node) return;
+  const to = species[+node.dataset.node];
+  if (to === from) return toast("A species can't evolve into itself", true);
+  const r = { from, to, minM: 0, maxM: ANY, minT: 0, maxT: ANY, minB: 0, minWin: 0, minWt: 0, maxWt: ANY };
+  // insert before an existing catch-all so the new rule isn't shadowed
+  const sib = rulesFrom(from), catchAll = sib.find(isCatchAll);
+  if (catchAll) rules.splice(rules.indexOf(catchAll), 0, r); else rules.push(r);
+  if (!from.evolveMin) toast(`${from.name} has evolve time 0, so this rule is never used: set an evolve time`, true);
+  select("rule", r);
+  changed();
+});
+$("graphWrap").addEventListener("click", () => { selection = null; render(); });
+
+// ---------------------------------------------------------------- side panel
+function select(kind, obj) { selection = { kind, obj }; render(); }
+
+function numField(label, value, onSet, opts = {}) {
+  const lab = document.createElement("label"); lab.textContent = label;
+  const wrap = document.createElement("div");
+  const inp = document.createElement("input"); inp.type = "number";
+  inp.min = opts.min ?? 0; inp.max = opts.max ?? 255;
+  if (opts.anyable) { inp.placeholder = "any"; inp.value = value === ANY ? "" : value; }
+  else inp.value = value;
+  inp.addEventListener("change", () => {
+    let v = inp.value.trim();
+    if (opts.anyable && v === "") { onSet(ANY); changed(); return; }
+    v = parseInt(v); const lo = +inp.min, hi = +inp.max;
+    if (isNaN(v)) v = lo;
+    v = Math.min(hi, Math.max(lo, v));
+    if (opts.anyable && v === ANY) v = ANY;
+    onSet(v); changed();
+  });
+  wrap.append(inp);
+  if (opts.hint) { const h = document.createElement("span"); h.className = "hint"; h.textContent = " " + opts.hint; wrap.append(h); }
+  return [lab, wrap];
+}
+function sprSelect(value, onSet) {
+  const wrap = document.createElement("div"); wrap.className = "sprPick";
+  const img = document.createElement("img"); img.src = spriteUrl(value);
+  const sel = document.createElement("select");
+  const names = [...new Set([...sprites.keys(), value])].sort();
+  for (const n of names) { const o = document.createElement("option"); o.value = o.textContent = n; if (n === value) o.selected = true; sel.append(o); }
+  sel.addEventListener("change", () => { onSet(sel.value); changed(); });
+  wrap.append(img, sel);
+  return wrap;
+}
+function btn(text, fn, cls) { const b = document.createElement("button"); b.textContent = text; b.className = cls || "small"; b.onclick = ev => { ev.stopPropagation(); fn(); }; return b; }
+
+function renderSide() {
+  const P = $("selPanel"); P.innerHTML = ""; P.className = "";
+  if (!selection || (selection.kind === "species" && !species.includes(selection.obj)) || (selection.kind === "rule" && !rules.includes(selection.obj))) {
+    selection = null; P.className = "empty";
+    P.textContent = "Click a species or an arrow. Drag from a species' right-hand dot onto another species to add an evolution rule.";
+    return;
+  }
+  if (selection.kind === "species") renderSpeciesPanel(P, selection.obj);
+  else renderRulePanel(P, selection.obj);
+}
+
+function renderSpeciesPanel(P, s) {
+  const idx = species.indexOf(s);
+  const g = document.createElement("div"); g.className = "grid2";
+  const nameL = document.createElement("label"); nameL.textContent = "Name";
+  const name = document.createElement("input"); name.type = "text"; name.maxLength = 11; name.value = s.name;
+  name.addEventListener("change", () => {
+    const v = name.value.trim().replace(/["\\]/g, "").slice(0, 11);
+    if (!v) { name.value = s.name; return; }
+    if (species.some(o => o !== s && o.name.toLowerCase() === v.toLowerCase())) { toast("Another species already has that name", true); name.value = s.name; return; }
+    s.name = v; changed();
+  });
+  const stL = document.createElement("label"); stL.textContent = "Stage";
+  const st = document.createElement("select");
+  STAGE_LABEL.forEach((l, i) => { const o = document.createElement("option"); o.value = i; o.textContent = l; if (i === s.stage) o.selected = true; st.append(o); });
+  st.addEventListener("change", () => { s.stage = +st.value; changed(); });
+  g.append(nameL, name, stL, st);
+  g.append(document.createElement("label"), Object.assign(document.createElement("span"), { className: "hint", textContent: idx === 0 ? "★ starting egg (species 0)" : `species #${idx}` }));
+  const f0L = document.createElement("label"); f0L.textContent = "Frame 0";
+  const f1L = document.createElement("label"); f1L.textContent = "Frame 1";
+  g.append(f0L, sprSelect(s.spr0, v => s.spr0 = v), f1L, sprSelect(s.spr1, v => s.spr1 = v));
+  g.append(...numField("Evolve after", s.evolveMin, v => s.evolveMin = v, { max: 65535, hint: "game-min (0 = final form)" }));
+  g.append(...numField("Hunger −1 every", s.hunger, v => s.hunger = v, { hint: "min" }));
+  g.append(...numField("Strength −1 every", s.strength, v => s.strength = v, { hint: "min" }));
+  g.append(...numField("Poop every", s.poop, v => s.poop = v, { hint: "min" }));
+  const slL = document.createElement("label"); slL.textContent = "Sleeps";
+  const slW = document.createElement("div");
+  const slC = document.createElement("input"); slC.type = "checkbox"; slC.checked = s.sleep !== null;
+  slC.addEventListener("change", () => { s.sleep = slC.checked ? 21 : null; if (slC.checked && s.wake === 0) s.wake = 8; changed(); });
+  slW.append(slC);
+  if (s.sleep !== null) {
+    const a = document.createElement("input"); a.type = "number"; a.min = 0; a.max = 23; a.value = s.sleep;
+    const b = document.createElement("input"); b.type = "number"; b.min = 0; b.max = 23; b.value = s.wake;
+    a.onchange = () => { s.sleep = Math.min(23, Math.max(0, parseInt(a.value) || 0)); changed(); };
+    b.onchange = () => { s.wake = Math.min(23, Math.max(0, parseInt(b.value) || 0)); changed(); };
+    slW.append(" ", a, document.createTextNode(" : 00 → "), b, document.createTextNode(" : 00"));
+  }
+  g.append(slL, slW);
+  g.append(...numField("Battle power", s.power, v => s.power = v));
+  g.append(...numField("Base weight", s.weight, v => s.weight = v, { max: 99, hint: "g" }));
+  g.append(...numField("Lifespan", s.life, v => s.life = v, { hint: "days (0 = none)" }));
+  P.append(g);
+
+  const out = rulesFrom(s);
+  const h = document.createElement("h2"); h.textContent = `Evolves into (first match wins)`; h.style.marginTop = "14px"; P.append(h);
+  if (!out.length) P.append(Object.assign(document.createElement("p"), { className: "hint", textContent: "No rules. Drag from the dot on its right edge onto another species." }));
+  out.forEach((r, i) => P.append(ruleItem(r, i, out)));
+  const inc = rules.filter(r => r.to === s);
+  if (inc.length) {
+    const h2 = document.createElement("h2"); h2.textContent = "Evolves from"; P.append(h2);
+    inc.forEach(r => { const d = document.createElement("div"); d.className = "ruleItem"; d.innerHTML = ""; d.append(Object.assign(document.createElement("span"), { className: "txt", textContent: `${r.from.name}: ${describe(r)}` })); d.onclick = () => select("rule", r); P.append(d); });
+  }
+  const row = document.createElement("div"); row.className = "row"; row.style.marginTop = "14px";
+  if (idx !== 0) row.append(btn("Make starting egg", () => {
+    if (!confirm(`Make ${s.name} species 0 (the egg every new generation starts from)? This changes species numbers, so pets saved on the device turn into different species. Start a new egg after flashing.`)) return;
+    species.splice(idx, 1); species.unshift(s); changed();
+  }, ""));
+  row.append(btn("Duplicate", () => {
+    const c = { ...s, name: uniqueName(s.name) }; species.splice(idx + 1, 0, c); select("species", c); changed();
+  }, ""));
+  if (idx !== 0) row.append(btn("Delete", () => {
+    if (!confirm(`Delete ${s.name} and its ${rules.filter(r => r.from === s || r.to === s).length} rule(s)? Species numbers after it shift, so pets saved on the device may change species.`)) return;
+    rules = rules.filter(r => r.from !== s && r.to !== s); species.splice(idx, 1); selection = null; changed();
+  }, "danger"));
+  P.append(row);
+}
+
+function ruleItem(r, i, list) {
+  const d = document.createElement("div"); d.className = "ruleItem" + (selection && selection.obj === r ? " sel" : "");
+  d.append(Object.assign(document.createElement("span"), { className: "num", textContent: i + 1 + "." }));
+  d.append(Object.assign(document.createElement("span"), { className: "txt", textContent: `→ ${r.to.name}: ${describe(r)}` }));
+  d.append(btn("▲", () => moveRule(r, -1)), btn("▼", () => moveRule(r, 1)));
+  d.onclick = () => select("rule", r);
+  return d;
+}
+function moveRule(r, dir) {
+  const sib = rulesFrom(r.from), i = sib.indexOf(r), j = i + dir;
+  if (j < 0 || j >= sib.length) return;
+  const a = rules.indexOf(r), b = rules.indexOf(sib[j]);
+  [rules[a], rules[b]] = [rules[b], rules[a]];
+  changed();
+}
+
+function renderRulePanel(P, r) {
+  const head = document.createElement("div"); head.className = "row";
+  const sib = rulesFrom(r.from);
+  head.append(Object.assign(document.createElement("b"), { textContent: `${r.from.name} → ${r.to.name}` }),
+              Object.assign(document.createElement("span"), { className: "hint", textContent: `priority ${sib.indexOf(r) + 1} of ${sib.length}` }));
+  P.append(head);
+  const g = document.createElement("div"); g.className = "grid2";
+  const toL = document.createElement("label"); toL.textContent = "Evolves into";
+  const to = document.createElement("select");
+  species.forEach(s => { if (s === r.from) return; const o = document.createElement("option"); o.value = species.indexOf(s); o.textContent = `${s.name} (${STAGE_LABEL[s.stage]})`; if (s === r.to) o.selected = true; to.append(o); });
+  to.addEventListener("change", () => { r.to = species[+to.value]; changed(); });
+  g.append(toL, to);
+  g.append(...numField("Mistakes ≥", r.minM, v => r.minM = v));
+  g.append(...numField("Mistakes ≤", r.maxM, v => r.maxM = v, { anyable: true }));
+  g.append(...numField("Trainings ≥", r.minT, v => r.minT = v));
+  g.append(...numField("Trainings ≤", r.maxT, v => r.maxT = v, { anyable: true }));
+  g.append(...numField("Battles ≥", r.minB, v => r.minB = v));
+  g.append(...numField("Win % ≥", r.minWin, v => r.minWin = v, { max: 100, hint: "0 = no requirement" }));
+  g.append(...numField("Weight ≥", r.minWt, v => r.minWt = v, { max: 99, hint: "g" }));
+  g.append(...numField("Weight ≤", r.maxWt, v => r.maxWt = v, { anyable: true, hint: "g" }));
+  P.append(g);
+  P.append(Object.assign(document.createElement("p"), { className: "hint",
+    textContent: "Counts are for the current stage only (they reset at every evolution). Leave a max blank for no limit." }));
+  const row = document.createElement("div"); row.className = "row";
+  row.append(btn("Higher priority", () => moveRule(r, -1), ""), btn("Lower priority", () => moveRule(r, 1), ""),
+             btn(`Select ${r.from.name}`, () => select("species", r.from), ""),
+             btn("Delete rule", () => { rules.splice(rules.indexOf(r), 1); selection = { kind: "species", obj: r.from }; changed(); }, "danger"));
+  P.append(row);
+}
+
+function uniqueName(n) {
+  let base = n.slice(0, 7), k = 2, v = base + k;
+  while (species.some(s => s.name === v)) v = base + ++k;
+  return v.slice(0, 11);
+}
+
+// ---------------------------------------------------------------- what-if simulator
+function simValues() {
+  const n = id => Math.max(0, parseInt($(id).value) || 0);
+  const b = n("simB"); return { m: n("simM"), t: n("simT"), b, w: Math.min(n("simW"), b), wt: $("simWt").value.trim() === "" ? null : n("simWt") };
+}
+function runSim() {
+  const v = simValues();
+  simHits = new Set(); simPathNodes = new Set(); simPathEdges = new Set();
+  const ctx = s => ({ m: v.m, t: v.t, b: v.b, w: v.w, wt: v.wt === null ? s.weight : v.wt });
+  for (const s of species) { if (!s.evolveMin) continue; const r = firstMatch(s, ctx(s)); if (r) simHits.add(r); }
+  const parts = [];
+  let cur = species[0];
+  const seen = new Set();
+  while (cur && !seen.has(cur)) {
+    seen.add(cur); simPathNodes.add(cur); parts.push(cur.name);
+    if (!cur.evolveMin) { parts.push("<span class=hint>(final form)</span>"); break; }
+    const r = firstMatch(cur, ctx(cur));
+    if (!r) { parts.push(`<span class=hint>(stays: no rule matches${rulesFrom(cur).length ? "" : "; it has no rules"})</span>`); break; }
+    simPathEdges.add(r); cur = r.to;
+  }
+  if (cur && seen.has(cur) && parts[parts.length - 1] !== cur.name && !parts[parts.length - 1].startsWith("<")) parts.push(`<span class=hint>(loops back to ${esc(cur.name)})</span>`);
+  $("simPath").innerHTML = parts.map((p, i) => p.startsWith("<") ? " " + p : (i ? " → " : "") + `<b>${esc(p)}</b>`).join("");
+}
+function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+["simM", "simT", "simB", "simW", "simWt"].forEach(id => $(id).addEventListener("input", () => render()));
+
+// ---------------------------------------------------------------- problems
+function shadowedRules() {
+  const out = new Set();
+  for (const s of species) {
+    let blocked = false;
+    for (const r of rulesFrom(s)) { if (blocked) out.add(r); if (isCatchAll(r)) blocked = true; }
+  }
+  return out;
+}
+function problems() {
+  const P = [];
+  const add = (level, text, obj) => P.push({ level, text, obj });
+  if (!species.length) { add("err", "No species"); return P; }
+  if (species[0].stage !== 0) add("err", `Species 0 (${species[0].name}) should be at the Egg stage: every new generation starts from it.`, species[0]);
+  const names = new Map();
+  for (const s of species) {
+    if (!s.name) add("err", "A species has no name", s);
+    if (s.name.length > 11) add("err", `${s.name}: names can be at most 11 characters`, s);
+    const k = s.name.toLowerCase(); if (names.has(k)) add("err", `Two species are called ${s.name}`, s); names.set(k, s);
+    if (sprites.size) for (const f of [s.spr0, s.spr1]) if (!sprites.has(f)) add("err", `${s.name}: sprite ${f} isn't in the loaded sprites`, s);
+    if (s.stage > 0 && (s.hunger === 0 || s.strength === 0 || s.poop === 0)) add("warn", `${s.name}: a hunger/strength/poop interval of 0 drains every minute`, s);
+    const out = rulesFrom(s);
+    if (s.evolveMin && !out.length) add("warn", `${s.name} has an evolve time but no rules, so it never evolves`, s);
+    if (!s.evolveMin && out.length) add("warn", `${s.name} has rules but evolve time 0, so its rules are never used`, s);
+    if (species.indexOf(s) > 0 && !rules.some(r => r.to === s)) add("info", `${s.name} can't be reached by evolving (it still appears as a battle opponent)`, s);
+    if (s.evolveMin && out.length && !out.some(isCatchAll) && !out.some(r => r.minB || r.minWin)) {
+      let gap = null;
+      outer: for (let m = 0; m <= 30; m++) for (let t = 0; t <= 60; t++)
+        if (!out.some(r => ruleMatches(r, { m, t, b: 0, w: 0, wt: s.weight }))) { gap = { m, t }; break outer; }
+      if (gap) add("warn", `${s.name} can get stuck: no rule matches e.g. ${gap.m} mistakes with ${gap.t} trainings`, s);
+    }
+    if (s.stage > 0 && !species.some(o => o !== s && o.stage === s.stage) && s.stage >= 3) add("info", `${s.name} is the only ${STAGE_LABEL[s.stage]}, so it is the only opponent at that stage`, s);
+  }
+  for (const r of shadowedRules()) add("warn", `${r.from.name} → ${r.to.name} can never fire: an earlier rule from ${r.from.name} always matches`, r);
+  for (const r of rules) {
+    if (r.to.stage <= r.from.stage) add("info", `${r.from.name} → ${r.to.name} doesn't go up a stage`, r);
+    if (r.minM > r.maxM || r.minT > r.maxT || r.minWt > r.maxWt) add("err", `${r.from.name} → ${r.to.name}: a minimum is above its maximum`, r);
+    if (r.to === species[0]) add("warn", `${r.from.name} → ${r.to.name} evolves back into the starting egg`, r);
+  }
+  return P;
+}
+function renderProblems() {
+  const box = $("problems"); box.innerHTML = "";
+  const P = problems();
+  if (!P.length) { box.innerHTML = '<div class="hint">No problems found 👍</div>'; return; }
+  const order = { err: 0, warn: 1, info: 2 };
+  P.sort((a, b) => order[a.level] - order[b.level]).forEach(p => {
+    const d = document.createElement("div"); d.className = "problem " + p.level; d.textContent = p.text;
+    if (p.obj) d.onclick = () => select(species.includes(p.obj) ? "species" : "rule", p.obj);
+    box.append(d);
+  });
+}
+
+// ---------------------------------------------------------------- files
+function loadSpeciesText(text, label) {
+  const res = parseSpecies(text);
+  species = res.species; rules = res.rules; selection = null;
+  const fb = flashBytes(); baselineBytes = fb.species + fb.rules;
+  render(); saveDraft();
+  toast(`Loaded ${species.length} species and ${rules.length} rules${label ? " from " + label : ""}`);
+}
+// Remembered folder (Chrome/Edge): dialogs start where the last file was opened or saved.
+// Shared with sprite-tool.html. Other browsers fall back to plain upload/download.
+const PICKER_ID = "bitbeast";
+const hasFSA = !!window.showOpenFilePicker;
+let lastHandle = null;
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("bitbeast-tools", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+idb().then(db => { const q = db.transaction("kv").objectStore("kv").get("lastHandle"); q.onsuccess = () => { lastHandle = q.result || null; }; }).catch(() => {});
+function rememberHandle(h) {
+  lastHandle = h;
+  idb().then(db => db.transaction("kv", "readwrite").objectStore("kv").put(h, "lastHandle")).catch(() => {});
+}
+async function runPicker(kind, opts) {
+  const fn = kind === "open" ? window.showOpenFilePicker : window.showSaveFilePicker;
+  try { return await fn(Object.assign({ id: PICKER_ID }, opts, lastHandle ? { startIn: lastHandle } : {})); }
+  catch (e) {
+    if (e.name === "AbortError") return null;
+    if (!lastHandle) throw e;
+    try { return await fn(Object.assign({ id: PICKER_ID }, opts)); }   // remembered file moved or deleted
+    catch (e2) { if (e2.name === "AbortError") return null; throw e2; }
+  }
+}
+function wireOpen(inputId, types, handler) {
+  const input = $(inputId);
+  input.onchange = async () => { const f = input.files[0]; input.value = ""; if (f) await handler(f); };
+  if (!hasFSA) return;
+  input.closest("label").addEventListener("click", async ev => {
+    ev.preventDefault();
+    try {
+      const hs = await runPicker("open", { types });
+      if (!hs || !hs.length) return;
+      rememberHandle(hs[0]);
+      await handler(await hs[0].getFile());
+    } catch (e) { toast(e.message, true); }
+  });
+}
+wireOpen("fileSpecies", [{ description: "species.h", accept: { "text/plain": [".h"] } }], async f => {
+  try { loadSpeciesText(await f.text(), f.name); } catch (e) { toast(e.message, true); }
+});
+wireOpen("fileSprites", [{ description: "sprites.h / sprites.txt", accept: { "text/plain": [".h", ".txt"] } }], async f => {
+  const t = await f.text();
+  const m = /^\s*@\w+\s+\d+\s+\d+/m.test(t) ? parseSpriteTxt(t) : parseSpriteH(t);
+  if (!m.size) return toast("No sprites found in " + f.name, true);
+  setSprites(m, f.name);
+});
+$("btnSpriteDraft").onclick = () => {
+  try {
+    const d = JSON.parse(localStorage.getItem("bitbeast-sprites") || "null");
+    if (!d || !d.txt) return toast("No Sprite Tool draft in this browser. Open sprite-tool.html here first (same folder or server).", true);
+    setSprites(parseSpriteTxt(d.txt), "Sprite Tool");
+  } catch (e) { toast("Couldn't read the Sprite Tool draft", true); }
+};
+$("btnNewSpecies").onclick = () => {
+  const ref = selection && selection.kind === "species" ? selection.obj : null;
+  const stage = ref ? Math.min(5, ref.stage + 1) : 3;
+  const tmpl = species.find(s => s.stage === stage) || { hunger: 59, strength: 59, poop: 120, sleep: 21, wake: 8, power: 20, weight: 25, evolveMin: 1440, life: 0, spr0: "EGG0", spr1: "EGG1" };
+  const firstSpr = sprites.size ? [...sprites.keys()][0] : tmpl.spr0;
+  const s = { ...tmpl, name: uniqueName("New"), stage, spr0: firstSpr, spr1: firstSpr };
+  if (stage === 5) { s.evolveMin = 0; }
+  species.push(s);
+  if (ref) rules.push({ from: ref, to: s, minM: 0, maxM: ANY, minT: 0, maxT: ANY, minB: 0, minWin: 0, minWt: 0, maxWt: ANY });
+  select("species", s); changed();
+  toast(ref ? `Added ${s.name} as an evolution of ${ref.name}` : `Added ${s.name}`);
+};
+async function saveFile(name, content) {
+  if (window.showSaveFilePicker) {
+    try {
+      const h = await runPicker("save", { suggestedName: name, types: [{ description: "C header", accept: { "text/plain": [".h"] } }] });
+      if (!h) return;
+      const w = await h.createWritable(); await w.write(content); await w.close();
+      rememberHandle(h); toast("Saved " + h.name); return;
+    } catch (e) { toast("Save dialog failed (" + e.message + "), downloading instead", true); }
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: "text/plain" }));
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+function exportCheck() {
+  const errs = problems().filter(p => p.level === "err");
+  if (errs.length && !confirm(`There ${errs.length === 1 ? "is 1 error" : "are " + errs.length + " errors"} (see Problems). The sketch may not compile. Export anyway?`)) return false;
+  return true;
+}
+$("btnSave").onclick = () => { if (exportCheck()) saveFile("species.h", generate()); };
+$("btnCopy").onclick = async () => {
+  if (!exportCheck()) return;
+  try { await navigator.clipboard.writeText(generate()); toast("Copied species.h"); } catch { toast("Clipboard blocked", true); }
+};
+$("showAll").onchange = () => render();
+
+// ---------------------------------------------------------------- misc
+function changed() { render(); saveDraft(); }
+let toastTimer;
+function toast(msg, bad) {
+  const e = $("status"); e.textContent = msg; e.style.background = bad ? "#6b2a2a" : "#1d4a63";
+  e.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => e.classList.remove("show"), 3200);
+}
+function saveDraft() {
+  try {
+    const spr = {}; sprites.forEach((s, k) => { spr[k] = { w: s.w, h: s.h, px: Array.from(s.px).join("") }; });
+    localStorage.setItem("bitbeast-evolution", JSON.stringify({ h: species.length ? generate() : "", baseline: baselineBytes, spr }));
+  } catch {}
+}
+function loadDraft() {
+  try {
+    const d = JSON.parse(localStorage.getItem("bitbeast-evolution") || "null");
+    if (!d) return false;
+    if (d.spr) { sprites = new Map(Object.entries(d.spr).map(([k, s]) => [k, { w: s.w, h: s.h, px: Uint8Array.from(s.px, c => +c) }])); }
+    if (d.h) { const r = parseSpecies(d.h); species = r.species; rules = r.rules; baselineBytes = d.baseline ?? null; return true; }
+  } catch {}
+  return false;
+}
+// When served over http from the project folder, load the real files automatically on first visit.
+async function autoLoad() {
+  if (location.protocol === "file:") return false;
+  try {
+    const [h, s] = await Promise.all([fetch("../BitBeast/species.h"), fetch("../BitBeast/sprites.h")]);
+    if (!h.ok) return false;
+    loadSpeciesText(await h.text(), "BitBeast/species.h");
+    if (s.ok) { const m = parseSpriteH(await s.text()); if (m.size) setSprites(m, "BitBeast/sprites.h"); }
+    return true;
+  } catch { return false; }
+}
+if (location.protocol !== "file:") {
+  $("btnReload").hidden = false;
+  $("btnReload").onclick = async () => {
+    if (!confirm("Discard your unsaved edits and reload the project's species.h and sprites.h?")) return;
+    if (!(await autoLoad())) toast("Couldn't fetch ../BitBeast/species.h", true);
+  };
+}
+(async () => {
+  if (!loadDraft() && !(await autoLoad())) {
+    render();
+    $("selPanel").innerHTML = 'Start with <b>Open species.h…</b> (BitBeast/species.h), then <b>Load sprites</b> (BitBeast/sprites.h) to see the art.';
+    return;
+  }
+  render();
+})();
+</script>
+</body>
+</html>

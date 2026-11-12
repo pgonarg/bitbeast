@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BitBeast Sprite Tool</title>
+<style>
+  :root {
+    --bg: #0d1520; --panel: #142030; --panel2: #1b2a3e; --line: #2a3d55;
+    --text: #dbe6f3; --dim: #8197b0; --accent: #6fd3ff; --on: #8fe0ff; --off: #0f1c2a;
+    --danger: #ff7b7b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex;
+           align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  header span { color: var(--dim); font-size: 13px; }
+  main { display: grid; grid-template-columns: 260px 1fr 420px; gap: 12px; padding: 12px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 8px; }
+  h2:not(:first-child) { margin-top: 18px; }
+  button, .btn { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+           border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; display: inline-block; }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  button.primary { background: #1d4a63; border-color: #2e7397; }
+  button.danger:hover { border-color: var(--danger); color: var(--danger); }
+  button:disabled { opacity: .4; cursor: default; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+  .col { display: flex; flex-direction: column; gap: 6px; }
+  input[type=text], input[type=number], select, textarea {
+    background: var(--off); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 7px; font: inherit; }
+  input[type=number] { width: 64px; }
+  textarea { width: 100%; min-height: 120px; font: 12px/1.3 ui-monospace, Consolas, monospace; resize: vertical; }
+  label { color: var(--dim); font-size: 13px; }
+  input[type=file] { display: none; }
+  .hint { color: var(--dim); font-size: 12px; margin: 4px 0; }
+  #gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+  .thumb { background: var(--panel2); border: 2px solid transparent; border-radius: 6px; padding: 6px;
+           cursor: pointer; text-align: center; }
+  .thumb.sel { border-color: var(--accent); }
+  .thumb canvas { image-rendering: pixelated; display: block; margin: 0 auto 4px; }
+  .thumb div { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #editor { image-rendering: pixelated; touch-action: none; cursor: crosshair; display: block;
+            margin: 0 auto; border: 1px solid var(--line); }
+  #oled { image-rendering: pixelated; background: #000; display: block; border-radius: 4px; }
+  #status { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: #1d4a63;
+            padding: 8px 14px; border-radius: 6px; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  #status.show { opacity: 1; }
+  #imgPanel { display: none; }
+  #imgPanel canvas { image-rendering: pixelated; background: var(--off); max-width: 100%; }
+  .empty { color: var(--dim); padding: 24px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>BitBeast Sprite Tool</h1>
+  <span>Converts between sprites.txt, sprites.h (PROGMEM arrays) and images, and has a pixel editor.
+        Everything runs locally in your browser.</span>
+</header>
+
+<main>
+  <!-- ============ LEFT: import / export ============ -->
+  <section>
+    <h2>Import</h2>
+    <div class="col">
+      <label class="btn">Open sprites.txt / sprites.h…<input type="file" id="fileText" accept=".txt,.h,.c,.cpp,.ino"></label>
+      <label class="btn">Import image(s)…<input type="file" id="fileImg" accept="image/*" multiple></label>
+      <button id="btnPaste">Parse pasted text ↓</button>
+    </div>
+    <textarea id="pasteBox" placeholder="Paste sprites.txt ASCII art or C arrays (const uint8_t X[] PROGMEM = {...}) here"></textarea>
+    <p class="hint">Unknown C arrays get their size from a <code>// NAME 16x16</code> comment, or from a guess
+      based on the byte count. Tamaguino's arrays import too.</p>
+    <div class="row"><label><input type="checkbox" id="replaceAll" checked> Replace current set on import</label></div>
+
+    <h2>Export</h2>
+    <div class="col">
+      <button class="primary" id="saveTxt">Save sprites.txt</button>
+      <button class="primary" id="saveH">Save sprites.h</button>
+      <button id="copyTxt">Copy sprites.txt</button>
+      <button id="copyH">Copy sprites.h</button>
+      <button id="savePng">Selected sprite → PNG</button>
+      <button id="saveSheet">All sprites → PNG sheet</button>
+    </div>
+    <p class="hint">After saving <b>sprites.txt</b>, run <code>python tools/gen_sprites.py</code>. Or save
+      <b>sprites.h</b> straight into <code>BitBeast/</code>. The output is the same either way.</p>
+
+    <h2>New sprite</h2>
+    <div class="row">
+      <input type="text" id="newName" value="NEW0" size="10">
+      <input type="number" id="newW" value="16" min="1" max="128"> ×
+      <input type="number" id="newH" value="16" min="1" max="64">
+    </div>
+    <button id="btnNew">Add blank sprite</button>
+  </section>
+
+  <!-- ============ CENTER: gallery ============ -->
+  <section>
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">Sprites <span id="count"></span></h2>
+      <span class="hint">Click a sprite to edit it. Drafts autosave in this browser.</span>
+    </div>
+    <div id="gallery"></div>
+
+    <div id="imgPanel">
+      <h2>Image import</h2>
+      <div class="row">
+        <label>Mode
+          <select id="imgMode">
+            <option value="fit">Resize to one sprite (keep aspect)</option>
+            <option value="stretch">Resize to one sprite (stretch)</option>
+            <option value="slice">Slice sheet into W×H tiles (1:1 pixels)</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label>W <input type="number" id="imgW" value="16" min="1" max="128"></label>
+        <label>H <input type="number" id="imgH" value="16" min="1" max="64"></label>
+        <label>Threshold <input type="range" id="imgThr" min="0" max="255" value="128"></label>
+        <label><input type="checkbox" id="imgInv"> Invert (dark = lit)</label>
+        <label>Name <input type="text" id="imgName" size="10"></label>
+      </div>
+      <div class="row"><canvas id="imgPreview"></canvas></div>
+      <div class="row">
+        <button class="primary" id="imgAdd">Add as new sprite(s)</button>
+        <button id="imgReplace">Replace selected</button>
+        <button id="imgCancel">Cancel</button>
+        <span class="hint" id="imgInfo"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RIGHT: editor ============ -->
+  <section id="editPanel">
+    <h2>Editor</h2>
+    <div id="noSel" class="empty">No sprite selected</div>
+    <div id="editBody">
+      <div class="row">
+        <input type="text" id="edName" size="14">
+        <input type="number" id="edW" min="1" max="128"> ×
+        <input type="number" id="edH" min="1" max="64">
+        <button id="edResize">Resize</button>
+      </div>
+      <canvas id="editor"></canvas>
+      <p class="hint">Left-drag paints (first pixel decides on or off). Right-drag erases. Ctrl+Z undoes.</p>
+      <div class="row">
+        <button id="tFlipH">Flip ↔</button><button id="tFlipV">Flip ↕</button>
+        <button id="tInv">Invert</button><button id="tClear">Clear</button>
+        <button id="tUndo">Undo</button>
+      </div>
+      <div class="row">
+        <button id="sL">◀</button><button id="sR">▶</button><button id="sU">▲</button><button id="sD">▼</button>
+        <span class="hint">shift pixels</span>
+      </div>
+      <div class="row">
+        <button id="tUp">Move earlier</button><button id="tDown">Move later</button>
+        <button id="tDup">Duplicate</button><button class="danger" id="tDel">Delete</button>
+      </div>
+      <h2>OLED preview (2×)</h2>
+      <canvas id="oled" width="128" height="64"></canvas>
+      <p class="hint" id="oledHint"></p>
+    </div>
+  </section>
+</main>
+<div id="status"></div>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- model
+/** @type {{name:string,w:number,h:number,px:Uint8Array,notes:string[]}[]} */
+let sprites = [];
+let trailingNotes = [];
+let sel = -1;
+let undoStack = [];
+const $ = id => document.getElementById(id);
+
+function makeSprite(name, w, h, px, notes) {
+  return { name: cleanName(name), w, h, px: px || new Uint8Array(w * h), notes: notes || [] };
+}
+function cleanName(n) { return (n || "SPRITE").replace(/[^A-Za-z0-9_]/g, "_").replace(/^(\d)/, "_$1"); }
+function uniqueName(n) {
+  n = cleanName(n);
+  if (!sprites.some(s => s.name === n)) return n;
+  let i = 2; while (sprites.some(s => s.name === n + "_" + i)) i++;
+  return n + "_" + i;
+}
+
+// ---------------------------------------------------------------- sprites.txt
+function parseTxt(text) {
+  const out = []; let cur = null; let notes = [];
+  const lines = text.replace(/\r/g, "").split("\n");
+  lines.forEach((raw, i) => {
+    const line = raw.trimEnd();
+    if (line.trim() === "") { if (!cur || cur.rows.length >= cur.h) notes.push(""); return; }
+    if (line.startsWith(";")) { notes.push(line); return; }
+    if (line.startsWith("@")) {
+      const p = line.slice(1).trim().split(/\s+/);
+      const w = parseInt(p[1]), h = parseInt(p[2]);
+      if (!p[0] || !(w > 0) || !(h > 0)) throw new Error(`line ${i + 1}: bad header "${line}"`);
+      while (notes.length && notes[0] === "") notes.shift();
+      while (notes.length && notes[notes.length - 1] === "") notes.pop();
+      cur = { name: p[0], w, h, rows: [], notes }; notes = []; out.push(cur); return;
+    }
+    if (!cur) throw new Error(`line ${i + 1}: pixel row before any @header`);
+    const row = line.trim();
+    if (row.length !== cur.w) throw new Error(`line ${i + 1} (${cur.name}): row is ${row.length} wide, expected ${cur.w}`);
+    if (/[^#.]/.test(row)) throw new Error(`line ${i + 1} (${cur.name}): only '#' and '.' allowed`);
+    if (cur.rows.length >= cur.h) throw new Error(`line ${i + 1} (${cur.name}): too many rows`);
+    cur.rows.push(row);
+  });
+  for (const s of out) if (s.rows.length !== s.h) throw new Error(`${s.name}: expected ${s.h} rows, got ${s.rows.length}`);
+  while (notes.length && notes[notes.length - 1] === "") notes.pop();
+  return {
+    sprites: out.map(s => {
+      const px = new Uint8Array(s.w * s.h);
+      s.rows.forEach((r, y) => { for (let x = 0; x < s.w; x++) px[y * s.w + x] = r[x] === "#" ? 1 : 0; });
+      return makeSprite(s.name, s.w, s.h, px, s.notes);
+    }),
+    trailing: notes
+  };
+}
+
+function toTxt() {
+  const L = [];
+  if (!sprites.length || !sprites[0].notes.length) {
+    L.push("; BitBeast sprite sheet.  '#' = lit pixel, '.' = dark.", "");
+  }
+  for (const s of sprites) {
+    if (s.notes.length) { if (L.length) L.push(""); L.push(...s.notes); }
+    L.push(`@${s.name} ${s.w} ${s.h}`);
+    for (let y = 0; y < s.h; y++) {
+      let r = ""; for (let x = 0; x < s.w; x++) r += s.px[y * s.w + x] ? "#" : ".";
+      L.push(r);
+    }
+    L.push("");
+  }
+  if (trailingNotes.length) L.push(...trailingNotes);
+  return L.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\n*$/, "\n");
+}
+
+// ---------------------------------------------------------------- C arrays / sprites.h
+function toBytes(s) {
+  const out = [];
+  for (let y = 0; y < s.h; y++)
+    for (let bx = 0; bx < s.w; bx += 8) {
+      let b = 0;
+      for (let i = 0; i < 8; i++) { const x = bx + i; if (x < s.w && s.px[y * s.w + x]) b |= 0x80 >> i; }
+      out.push(b);
+    }
+  return out;
+}
+const hex = b => "0x" + b.toString(16).padStart(2, "0");
+
+// Same layout as tools/gen_sprites.py, so the two tools produce identical files.
+function toH() {
+  let total = 0;
+  const L = ["// AUTO-GENERATED by tools/gen_sprites.py from tools/sprites.txt -- do not edit by hand.",
+             "#pragma once", "#include <avr/pgmspace.h>", ""];
+  for (const s of sprites) {
+    const d = toBytes(s); total += d.length;
+    L.push(`// ${s.name} ${s.w}x${s.h}`, `const uint8_t SPR_${s.name}[] PROGMEM = {`);
+    for (let i = 0; i < d.length; i += 16) L.push("  " + d.slice(i, i + 16).map(hex).join(", ") + ",");
+    L.push("};", "");
+  }
+  L.push(`// total sprite bytes: ${total}`);
+  return L.join("\n") + "\n";
+}
+
+// Pick the most square WxH (W a multiple of 8, fits the 128x64 screen) that matches the byte count.
+function guessSize(n) {
+  let best = null;
+  for (let w = 8; w <= 128; w += 8) {
+    const bpr = w / 8;
+    if (n % bpr) continue;
+    const h = n / bpr;
+    if (h > 64) continue;
+    const score = Math.abs(Math.log(w / h));
+    if (!best || score < best[2]) best = [w, h, score];
+  }
+  return best ? [best[0], best[1]] : null;
+}
+
+function parseC(text) {
+  const out = [];
+  const re = /(?:\/\/([^\n]*)\n\s*)?const\s+(?:unsigned\s+char|uint8_t|char)\s+(\w+)\s*\[[^\]]*\]\s*(?:PROGMEM\s*)?=\s*\{([^}]*)\}/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const comment = m[1] || "", ident = m[2];
+    const bytes = (m[3].match(/0x[0-9a-fA-F]+|\b\d+\b/g) || []).map(v => parseInt(v) & 255);
+    let w, h;
+    const dm = comment.match(/(\d+)\s*x\s*(\d+)/);
+    if (dm) { w = +dm[1]; h = +dm[2]; }
+    if (!w || Math.ceil(w / 8) * h !== bytes.length) {
+      const g = guessSize(bytes.length);
+      const ans = prompt(`Size of "${ident}" (${bytes.length} bytes)? Enter WxH`, g ? g.join("x") : "16x" + Math.max(1, Math.floor(bytes.length / 2)));
+      if (!ans) continue;
+      const am = ans.match(/(\d+)\s*x\s*(\d+)/i);
+      if (!am) continue;
+      w = +am[1]; h = +am[2];
+    }
+    const bpr = Math.ceil(w / 8);
+    const px = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const b = bytes[y * bpr + (x >> 3)] || 0;
+      px[y * w + x] = (b & (0x80 >> (x & 7))) ? 1 : 0;
+    }
+    out.push(makeSprite(ident.replace(/^SPR_/, ""), w, h, px));
+  }
+  if (!out.length) throw new Error("No C byte arrays found");
+  return out;
+}
+
+function importText(text) {
+  let res;
+  if (/^\s*@\w+\s+\d+\s+\d+/m.test(text)) res = parseTxt(text);
+  else res = { sprites: parseC(text), trailing: [] };
+  if ($("replaceAll").checked) { sprites = res.sprites; trailingNotes = res.trailing; sel = sprites.length ? 0 : -1; }
+  else { for (const s of res.sprites) { s.name = uniqueName(s.name); sprites.push(s); } }
+  undoStack = [];
+  refresh(); toast(`Imported ${res.sprites.length} sprite(s)`);
+}
+
+// ---------------------------------------------------------------- images
+let imgSources = [];   // HTMLImageElement[]
+function luminanceOn(r, g, b, a, thr, inv) {
+  if (a < 128) return 0;
+  const l = 0.299 * r + 0.587 * g + 0.114 * b;
+  return (inv ? l < thr : l >= thr) ? 1 : 0;
+}
+function imageToSprites(img, opts) {
+  const { mode, w, h, thr, inv } = opts;
+  const c = document.createElement("canvas"); const g = c.getContext("2d", { willReadFrequently: true });
+  g.imageSmoothingEnabled = mode !== "slice";
+  const results = [];
+  const grab = (srcCanvas, ox, oy) => {
+    const d = srcCanvas.getContext("2d").getImageData(ox, oy, w, h).data;
+    const px = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) px[i] = luminanceOn(d[i * 4], d[i * 4 + 1], d[i * 4 + 2], d[i * 4 + 3], thr, inv);
+    return px;
+  };
+  if (mode === "slice") {
+    c.width = img.naturalWidth; c.height = img.naturalHeight; g.drawImage(img, 0, 0);
+    for (let ty = 0; ty + h <= c.height; ty += h)
+      for (let tx = 0; tx + w <= c.width; tx += w) {
+        const px = grab(c, tx, ty);
+        if (px.some(v => v)) results.push(px);   // skip empty tiles
+      }
+  } else {
+    c.width = w; c.height = h;
+    g.fillStyle = inv ? "#fff" : "#000"; g.globalAlpha = 0; g.fillRect(0, 0, w, h); g.globalAlpha = 1;
+    let dw = w, dh = h, dx = 0, dy = 0;
+    if (mode === "fit") {
+      const s = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+      dw = Math.max(1, Math.round(img.naturalWidth * s)); dh = Math.max(1, Math.round(img.naturalHeight * s));
+      dx = Math.floor((w - dw) / 2); dy = h - dh;            // bottom-aligned: creatures stand on the floor
+    }
+    g.drawImage(img, dx, dy, dw, dh);
+    results.push(grab(c, 0, 0));
+  }
+  return results;
+}
+function imgOpts() {
+  return { mode: $("imgMode").value, w: clampInt($("imgW").value, 1, 128), h: clampInt($("imgH").value, 1, 64),
+           thr: +$("imgThr").value, inv: $("imgInv").checked };
+}
+function clampInt(v, lo, hi) { v = parseInt(v); return isNaN(v) ? lo : Math.min(hi, Math.max(lo, v)); }
+
+function renderImgPreview() {
+  if (!imgSources.length) return;
+  const o = imgOpts();
+  const all = imgSources.flatMap(img => imageToSprites(img, o));
+  const scale = Math.max(2, Math.min(8, Math.floor(160 / Math.max(o.w, o.h))));
+  const cols = Math.min(all.length, 8) || 1, rows = Math.ceil(all.length / cols) || 1;
+  const cv = $("imgPreview"), pad = 4;
+  cv.width = cols * (o.w * scale + pad); cv.height = rows * (o.h * scale + pad);
+  const g = cv.getContext("2d"); g.fillStyle = "#0f1c2a"; g.fillRect(0, 0, cv.width, cv.height);
+  all.forEach((px, k) => drawPx(g, px, o.w, o.h, (k % cols) * (o.w * scale + pad), Math.floor(k / cols) * (o.h * scale + pad), scale, "#8fe0ff", "#000"));
+  $("imgInfo").textContent = `${all.length} sprite(s) at ${o.w}×${o.h}`;
+  $("imgReplace").disabled = sel < 0 || all.length !== 1;
+  return all;
+}
+
+// ---------------------------------------------------------------- drawing helpers
+function drawPx(g, px, w, h, ox, oy, scale, on, off) {
+  if (off) { g.fillStyle = off; g.fillRect(ox, oy, w * scale, h * scale); }
+  g.fillStyle = on;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (px[y * w + x]) g.fillRect(ox + x * scale, oy + y * scale, scale, scale);
+}
+
+function renderGallery() {
+  const gal = $("gallery"); gal.innerHTML = "";
+  $("count").textContent = `(${sprites.length}, ${sprites.reduce((a, s) => a + Math.ceil(s.w / 8) * s.h, 0)} bytes)`;
+  if (!sprites.length) { gal.innerHTML = '<div class="empty">Open a sprites.txt or sprites.h, paste some text, import an image, or add a blank sprite.</div>'; return; }
+  sprites.forEach((s, i) => {
+    const d = document.createElement("div"); d.className = "thumb" + (i === sel ? " sel" : "");
+    const scale = Math.max(1, Math.floor(64 / Math.max(s.w, s.h)));
+    const c = document.createElement("canvas"); c.width = s.w * scale; c.height = s.h * scale;
+    drawPx(c.getContext("2d"), s.px, s.w, s.h, 0, 0, scale, "#8fe0ff", "#0f1c2a");
+    const n = document.createElement("div"); n.textContent = `${s.name} ${s.w}×${s.h}`; n.title = n.textContent;
+    d.append(c, n); d.onclick = () => select(i); gal.append(d);
+  });
+}
+
+let cell = 16;
+function renderEditor() {
+  const has = sel >= 0 && sprites[sel];
+  $("noSel").style.display = has ? "none" : "";
+  $("editBody").style.display = has ? "" : "none";
+  if (!has) return;
+  const s = sprites[sel];
+  cell = Math.max(4, Math.floor(Math.min(384 / s.w, 384 / s.h)));
+  const cv = $("editor"); cv.width = s.w * cell + 1; cv.height = s.h * cell + 1;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#0f1c2a"; g.fillRect(0, 0, cv.width, cv.height);
+  drawPx(g, s.px, s.w, s.h, 0, 0, cell, "#8fe0ff", null);
+  g.strokeStyle = "rgba(120,160,200,.18)"; g.lineWidth = 1; g.beginPath();
+  for (let x = 0; x <= s.w; x++) { g.moveTo(x * cell + .5, 0); g.lineTo(x * cell + .5, s.h * cell); }
+  for (let y = 0; y <= s.h; y++) { g.moveTo(0, y * cell + .5); g.lineTo(s.w * cell, y * cell + .5); }
+  g.stroke();
+  g.strokeStyle = "rgba(120,160,200,.45)"; g.beginPath();   // byte boundaries
+  for (let x = 8; x < s.w; x += 8) { g.moveTo(x * cell + .5, 0); g.lineTo(x * cell + .5, s.h * cell); }
+  g.stroke();
+  if (document.activeElement !== $("edName")) $("edName").value = s.name;
+  $("edW").value = s.w; $("edH").value = s.h;
+  renderOled();
+}
+
+// Shows the sprite like the game: 2x on a 128x64 screen. NAME0/NAME1 pairs animate.
+let oledTick = 0;
+function renderOled() {
+  if (sel < 0 || !sprites[sel]) return;
+  const g = $("oled").getContext("2d");
+  g.fillStyle = "#000"; g.fillRect(0, 0, 128, 64);
+  let s = sprites[sel];
+  const m = s.name.match(/^(.*?)([01])$/);
+  let partner = null;
+  if (m) partner = sprites.find(o => o.name === m[1] + (m[2] === "0" ? "1" : "0") && o.w === s.w && o.h === s.h);
+  if (partner && oledTick & 1) s = partner;
+  const scale = s.w <= 16 && s.h <= 32 ? 2 : 1;
+  const x = Math.floor((128 - s.w * scale) / 2), y = Math.floor((64 - s.h * scale) / 2);
+  drawPx(g, s.px, s.w, s.h, x, y, scale, "#e8f6ff", null);
+  $("oledHint").textContent = partner ? `animating ${m[1]}0 ↔ ${m[1]}1` : (m ? "" : "name it NAME0 / NAME1 to preview the animation");
+}
+setInterval(() => { oledTick++; renderOled(); }, 500);
+
+function refresh() { renderGallery(); renderEditor(); saveDraft(); }
+function select(i) { sel = i; undoStack = []; refresh(); }
+
+// ---------------------------------------------------------------- editing
+function pushUndo() {
+  const s = sprites[sel]; if (!s) return;
+  undoStack.push({ w: s.w, h: s.h, px: s.px.slice() });
+  if (undoStack.length > 100) undoStack.shift();
+}
+function undo() {
+  const s = sprites[sel], u = undoStack.pop(); if (!s || !u) return;
+  s.w = u.w; s.h = u.h; s.px = u.px; refresh();
+}
+function edit(fn) { const s = sprites[sel]; if (!s) return; pushUndo(); fn(s); refresh(); }
+
+let painting = false, paintVal = 1, lastCell = -1;
+function cellAt(ev) {
+  const s = sprites[sel], r = $("editor").getBoundingClientRect();
+  const sx = $("editor").width / r.width;
+  const x = Math.floor((ev.clientX - r.left) * sx / cell), y = Math.floor((ev.clientY - r.top) * sx / cell);
+  return (x >= 0 && y >= 0 && x < s.w && y < s.h) ? y * s.w + x : -1;
+}
+$("editor").addEventListener("pointerdown", ev => {
+  const s = sprites[sel]; if (!s) return;
+  const i = cellAt(ev); if (i < 0) return;
+  pushUndo(); painting = true; $("editor").setPointerCapture(ev.pointerId);
+  paintVal = ev.button === 2 ? 0 : (s.px[i] ? 0 : 1);
+  s.px[i] = paintVal; lastCell = i; renderEditor();
+});
+$("editor").addEventListener("pointermove", ev => {
+  if (!painting) return;
+  const i = cellAt(ev); if (i < 0 || i === lastCell) return;
+  sprites[sel].px[i] = paintVal; lastCell = i; renderEditor();
+});
+const endPaint = () => { if (painting) { painting = false; lastCell = -1; refresh(); } };
+$("editor").addEventListener("pointerup", endPaint);
+$("editor").addEventListener("pointercancel", endPaint);
+$("editor").addEventListener("contextmenu", ev => ev.preventDefault());
+
+function transform(fn) {   // fn(x,y,s) -> source index or -1
+  edit(s => { const n = new Uint8Array(s.w * s.h);
+    for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) { const j = fn(x, y, s); n[y * s.w + x] = j < 0 ? 0 : s.px[j]; }
+    s.px = n; });
+}
+$("tFlipH").onclick = () => transform((x, y, s) => y * s.w + (s.w - 1 - x));
+$("tFlipV").onclick = () => transform((x, y, s) => (s.h - 1 - y) * s.w + x);
+$("sL").onclick = () => transform((x, y, s) => x + 1 < s.w ? y * s.w + x + 1 : -1);
+$("sR").onclick = () => transform((x, y, s) => x > 0 ? y * s.w + x - 1 : -1);
+$("sU").onclick = () => transform((x, y, s) => y + 1 < s.h ? (y + 1) * s.w + x : -1);
+$("sD").onclick = () => transform((x, y, s) => y > 0 ? (y - 1) * s.w + x : -1);
+$("tInv").onclick = () => edit(s => { for (let i = 0; i < s.px.length; i++) s.px[i] ^= 1; });
+$("tClear").onclick = () => edit(s => s.px.fill(0));
+$("tUndo").onclick = undo;
+$("edResize").onclick = () => edit(s => {
+  const w = clampInt($("edW").value, 1, 128), h = clampInt($("edH").value, 1, 64);
+  const n = new Uint8Array(w * h);
+  for (let y = 0; y < Math.min(h, s.h); y++) for (let x = 0; x < Math.min(w, s.w); x++) n[y * w + x] = s.px[y * s.w + x];
+  s.w = w; s.h = h; s.px = n;
+});
+$("edName").addEventListener("change", () => {
+  const s = sprites[sel]; if (!s) return;
+  const n = cleanName($("edName").value);
+  if (n !== s.name && sprites.some(o => o !== s && o.name === n)) { toast(`Name ${n} is already used`); $("edName").value = s.name; return; }
+  s.name = n; refresh();
+});
+$("tUp").onclick = () => { if (sel > 0) { [sprites[sel - 1], sprites[sel]] = [sprites[sel], sprites[sel - 1]]; sel--; refresh(); } };
+$("tDown").onclick = () => { if (sel >= 0 && sel < sprites.length - 1) { [sprites[sel + 1], sprites[sel]] = [sprites[sel], sprites[sel + 1]]; sel++; refresh(); } };
+$("tDup").onclick = () => {
+  const s = sprites[sel]; if (!s) return;
+  const m = s.name.match(/^(.*?)0$/);
+  const c = makeSprite(uniqueName(m ? m[1] + "1" : s.name + "_copy"), s.w, s.h, s.px.slice());
+  sprites.splice(sel + 1, 0, c); select(sel + 1);
+};
+$("tDel").onclick = () => {
+  const s = sprites[sel]; if (!s || !confirm(`Delete ${s.name}?`)) return;
+  sprites.splice(sel, 1); sel = Math.min(sel, sprites.length - 1); undoStack = []; refresh();
+};
+$("btnNew").onclick = () => {
+  const s = makeSprite(uniqueName($("newName").value), clampInt($("newW").value, 1, 128), clampInt($("newH").value, 1, 64));
+  sprites.push(s); select(sprites.length - 1);
+};
+document.addEventListener("keydown", ev => {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { ev.preventDefault(); undo(); }
+});
+
+// ---------------------------------------------------------------- remembered folder
+// Chrome/Edge: open and save dialogs start in the folder of the last file opened or saved
+// (shared by both BitBeast tools). Other browsers fall back to plain upload/download.
+const PICKER_ID = "bitbeast";
+const hasFSA = !!window.showOpenFilePicker;
+let lastHandle = null;
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("bitbeast-tools", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+idb().then(db => { const q = db.transaction("kv").objectStore("kv").get("lastHandle"); q.onsuccess = () => { lastHandle = q.result || null; }; }).catch(() => {});
+function rememberHandle(h) {
+  lastHandle = h;
+  idb().then(db => db.transaction("kv", "readwrite").objectStore("kv").put(h, "lastHandle")).catch(() => {});
+}
+async function runPicker(kind, opts) {
+  const fn = kind === "open" ? window.showOpenFilePicker : window.showSaveFilePicker;
+  try { return await fn(Object.assign({ id: PICKER_ID }, opts, lastHandle ? { startIn: lastHandle } : {})); }
+  catch (e) {
+    if (e.name === "AbortError") return null;
+    if (!lastHandle) throw e;
+    try { return await fn(Object.assign({ id: PICKER_ID }, opts)); }   // remembered file moved or deleted
+    catch (e2) { if (e2.name === "AbortError") return null; throw e2; }
+  }
+}
+// Makes a "<label class=btn><input type=file>" open the remembering picker instead.
+function wireOpen(inputId, types, multiple, handler) {
+  const input = $(inputId);
+  input.onchange = async () => { const files = [...input.files]; input.value = ""; if (files.length) await handler(files); };
+  if (!hasFSA) return;
+  input.closest("label").addEventListener("click", async ev => {
+    ev.preventDefault();
+    try {
+      const hs = await runPicker("open", { types, multiple });
+      if (!hs || !hs.length) return;
+      rememberHandle(hs[0]);
+      await handler(await Promise.all(hs.map(h => h.getFile())));
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+// ---------------------------------------------------------------- import wiring
+wireOpen("fileText", [{ description: "sprites.txt / sprites.h", accept: { "text/plain": [".txt", ".h", ".c", ".cpp", ".ino"] } }], false, async files => {
+  try { importText(await files[0].text()); } catch (e) { toast(e.message, true); }
+});
+$("btnPaste").onclick = () => { try { importText($("pasteBox").value); } catch (e) { toast(e.message, true); } };
+
+wireOpen("fileImg", [{ description: "Images", accept: { "image/*": [".png", ".gif", ".jpg", ".jpeg", ".bmp", ".webp"] } }], true, async files => {
+  imgSources = await Promise.all(files.map(f => new Promise((res, rej) => {
+    const img = new Image(); img.onload = () => res(img); img.onerror = () => rej(new Error("Cannot read " + f.name));
+    img.src = URL.createObjectURL(f); img.dataset.name = f.name;
+  }))).catch(e => { toast(e.message, true); return []; });
+  if (!imgSources.length) return;
+  $("imgName").value = cleanName(files[0].name.replace(/\.[^.]+$/, "")).toUpperCase();
+  $("imgPanel").style.display = "block";
+  renderImgPreview();
+  $("imgPanel").scrollIntoView({ behavior: "smooth" });
+});
+["imgMode", "imgW", "imgH", "imgThr", "imgInv"].forEach(id => $(id).addEventListener("input", renderImgPreview));
+$("imgCancel").onclick = () => { imgSources = []; $("imgPanel").style.display = "none"; };
+$("imgAdd").onclick = () => {
+  const o = imgOpts(); const all = renderImgPreview(); if (!all || !all.length) return;
+  const base = cleanName($("imgName").value || "IMG");
+  all.forEach((px, k) => sprites.push(makeSprite(uniqueName(all.length > 1 ? base + k : base), o.w, o.h, px)));
+  sel = sprites.length - 1; undoStack = []; refresh(); toast(`Added ${all.length} sprite(s)`);
+};
+$("imgReplace").onclick = () => {
+  const o = imgOpts(); const all = renderImgPreview(); if (!all || all.length !== 1 || sel < 0) return;
+  edit(s => { s.w = o.w; s.h = o.h; s.px = all[0]; });
+  toast("Replaced " + sprites[sel].name);
+};
+
+// ---------------------------------------------------------------- export wiring
+async function saveFile(name, content, mime) {
+  if (window.showSaveFilePicker) {
+    try {
+      const h = await runPicker("save", { suggestedName: name, types: [{ description: name, accept: { [mime]: ["." + name.split(".").pop()] } }] });
+      if (!h) return;
+      const w = await h.createWritable(); await w.write(content); await w.close();
+      rememberHandle(h); toast("Saved " + h.name); return;
+    } catch (e) { toast("Save dialog failed (" + e.message + "), downloading instead", true); }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(content instanceof Blob ? content : new Blob([content], { type: mime }));
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+async function copy(text, what) {
+  try { await navigator.clipboard.writeText(text); toast("Copied " + what); }
+  catch { $("pasteBox").value = text; toast("Clipboard blocked: text placed in the paste box", true); }
+}
+const needSprites = () => { if (!sprites.length) { toast("No sprites yet", true); return false; } return true; };
+$("saveTxt").onclick = () => needSprites() && saveFile("sprites.txt", toTxt(), "text/plain");
+$("saveH").onclick = () => needSprites() && saveFile("sprites.h", toH(), "text/plain");
+$("copyTxt").onclick = () => needSprites() && copy(toTxt(), "sprites.txt");
+$("copyH").onclick = () => needSprites() && copy(toH(), "sprites.h");
+$("savePng").onclick = () => {
+  const s = sprites[sel]; if (!s) return toast("Select a sprite first", true);
+  const c = document.createElement("canvas"); c.width = s.w; c.height = s.h;
+  drawPx(c.getContext("2d"), s.px, s.w, s.h, 0, 0, 1, "#fff", "#000");
+  c.toBlob(b => saveFile(s.name + ".png", b, "image/png"));
+};
+$("saveSheet").onclick = () => {
+  if (!needSprites()) return;
+  // 1:1 pixels, one 16x16 cell per sprite (bigger ones get their own row), so the sheet re-imports with "Slice".
+  const cw = Math.max(...sprites.map(s => s.w)), ch = Math.max(...sprites.map(s => s.h));
+  const cols = 8, rows = Math.ceil(sprites.length / cols);
+  const c = document.createElement("canvas"); c.width = cols * cw; c.height = rows * ch;
+  const g = c.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, c.width, c.height);
+  sprites.forEach((s, k) => drawPx(g, s.px, s.w, s.h, (k % cols) * cw, Math.floor(k / cols) * ch, 1, "#fff", null));
+  c.toBlob(b => saveFile(`sprite-sheet-${cw}x${ch}.png`, b, "image/png"));
+};
+
+// ---------------------------------------------------------------- misc
+let toastTimer;
+function toast(msg, bad) {
+  const el = $("status"); el.textContent = msg; el.style.background = bad ? "#6b2a2a" : "#1d4a63";
+  el.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+}
+function saveDraft() {
+  try { localStorage.setItem("bitbeast-sprites", JSON.stringify({ txt: toTxt(), sel })); } catch {}
+}
+function loadDraft() {
+  try {
+    const d = JSON.parse(localStorage.getItem("bitbeast-sprites") || "null");
+    if (d && d.txt) { const r = parseTxt(d.txt); sprites = r.sprites; trailingNotes = r.trailing; sel = Math.min(d.sel ?? 0, sprites.length - 1); }
+  } catch {}
+}
+loadDraft();
+refresh();
+</script>
+</body>
+</html>
