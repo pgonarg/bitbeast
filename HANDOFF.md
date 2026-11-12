@@ -31,7 +31,7 @@ user's Terminal panel if it needs to sign in again. Commit or push only when the
 | Buttons | **Not wired yet.** Planned: A=D9 (next), B=D8 (confirm), C=D7 (back), each to GND (internal pull-ups, `BUTTONS_ACTIVE_LOW 1`) |
 | Buzzer | **Not wired yet.** Code uses D6. Moving it to **D3 or D11** is recommended: those pins let a future lean buzzer driver use hardware toggling and save about 1.1 KB |
 | LED | On-board D13 blinks while the pet is calling |
-| A-Com circuit | Not built. See "A-Com plan" below |
+| A-Com circuit | Not built. Code is done (see "A-Com" below): A2 → R1 3.9k → signal prong; signal → A3; signal → R2 5.6k → GND; toy GND → GND |
 
 The board currently runs the **kiosk build** (screen test, then random creatures walking or
 attacking). The **game mode has never run on hardware**: without buttons it can't get past
@@ -61,15 +61,17 @@ Gotchas:
   `config.h`. The IDE reloads files changed on disk if its tab has no unsaved edits.
 - Always ask the user before uploading to their board.
 
-## Sizes (2026-11-12, after the "quick wins" trims)
+## Sizes (2026-11-12, with the A-Com)
 
 | Build | Flash (of 32,256) | RAM (of 2,048) |
 |---|---|---|
-| Game (`KIOSK_MODE 0`) | **26,434 (82%)**, 5,822 free | 1,543, about 505 left for the stack |
-| Kiosk | 15,152 | 1,485 |
+| Game (`KIOSK_MODE 0`) | **28,320 (87%)**, 3,936 free | 1,551, about 497 left for the stack |
+| Kiosk | 15,174 | 1,486 |
+
+The A-Com cost 1,886 B of flash and 8 B of RAM (before it: 26,434 / 1,543).
 
 The RAM figure is honest: the 1 KB frame buffer is now a static array, not `malloc`.
-Rough costs: a species is about 100 B (two 16x16 frames = 64 B, a table row = 25 B, plus
+Rough costs: a species is about 100 B (two 16x16 frames = 64 B, a table row = 26 B, plus
 rules), and an evolution rule is 10 B.
 
 Game-build flash breakdown measured before the trims (DWARF line-table attribution; LTO
@@ -92,7 +94,7 @@ inlining makes `nm` symbol names useless):
 |---|---|
 | `BitBeast.ino` | Everything else: drawing helpers, sound player, save/load, life cycle, `gameMinute()`, input, every screen mode (`modeXxx`), kiosk code (`#if KIOSK_MODE`), `setup()` and `loop()` |
 | `config.h` | `KIOSK_MODE` (overridable with `-D`), `KIOSK_SHOW_MS`, pins, `BUTTONS_ACTIVE_LOW`, `OLED_ADDR`, gameplay tuning (call timeout, death limits, injury odds), timing (frame, autosave, dim, screen off) |
-| `types.h` | `Species` struct (`name[12]`, so up to 11 letters), `EvoRule`, `PetState` (40 B, saved to EEPROM), `SaveBlock`, `Mode` enum, `F_*` flags, `NOSLEEP`, `ANY` |
+| `types.h` | `Species` struct (`name[12]`, so up to 11 letters; `acomSlot`), `EvoRule`, `PetState` (40 B, saved to EEPROM), `SaveBlock`, `Mode` enum, `F_*` flags, `NOSLEEP`, `ANY` |
 | `species.h` | The `SpeciesId` enum, the `SPECIES[]` table, the `EVO_RULES[]` table and `STAGE_NAMES`. Written by the evolution tool |
 | `sprites.h` | Bitmaps. Written by the Sprite Tool or `gen_sprites.py` |
 | `src/Adafruit_SSD1306/` | Bundled Adafruit SSD1306 2.5.17, trimmed by four switches in its header: `SSD1306_NO_SPLASH`, `SSD1306_NO_SPI`, `SSD1306_NO_ROTATION`, `SSD1306_STATIC_BUFFER 1024`. In the .cpp, `if (wire)`/`if (spi)`/`switch (rotation)` were routed through the macros `SSD1306_USE_WIRE`/`SSD1306_USE_SPI`/`SSD1306_ROT` so the dead branches compile away |
@@ -149,6 +151,9 @@ inlining makes `nm` symbol names useless):
   Then a grave and a new generation.
 - **Screens and system:** stats pages, clock view and setting, setup menu (clock, sound,
   speed, new egg), screen dim after 1 minute and off after 5 minutes.
+- **A-Com link battles** (`#if ACOM_ENABLED` section in `BitBeast.ino`, `modeLink` = the
+  Battle menu: vs CPU / Link: go 1st / Link: go 2nd). **Written, compiled, never run on
+  hardware.** See "A-Com" below.
 - **Kiosk mode:** a screen test, then a random creature for 6 s (B skips). Half the time it
   walks; half the time it stands at an edge and fires shots from its mouth.
 
@@ -187,9 +192,9 @@ inlining makes `nm` symbol names useless):
    has been verified in game mode.
 2. **A-Com hardware:** build the circuit and validate it with the stock **DMComm** Arduino
    sketch, as a separate upload, to see the real V-pet's packets over serial.
-3. **A-Com in BitBeast:** implement the original-battle exchange. Add a "connect" choice in
-   Battle, map each species to a real V-pet creature number, and count results in the win
-   record. Pause screen updates during the exchange.
+3. ~~A-Com in BitBeast~~ **done in code 2026-11-12**, untested. After step 2, test both
+   "go 1st" and "go 2nd" against the user's toy, and find out whether the 20th needs a
+   special mode for original battles.
 4. **Remaining flash trims** when more room is needed for species (about 5.6 KB):
    - replace Adafruit GFX with a lean in-sketch renderer, trimming the font to ASCII 32-126
      and dropping the always-linked line/rotation functions and custom-font code: ~3 KB
@@ -199,10 +204,50 @@ inlining makes `nm` symbol names useless):
 5. Then: more species and rules. Optional: BitBeast-vs-BitBeast battles (same protocol), a
    DS3231 RTC, battery power.
 
-Budget check: 5.8 KB free now, the A-Com is estimated at 1.5-3 KB, which leaves room for
-about 25-40 species. With the step 4 trims, about 55 more.
+Budget check: 3.9 KB free now (after the A-Com), room for about 35 more species at ~100 B
+each, fewer with art-heavy ones. With the step 4 trims, about 90.
 
-## A-Com research (from the DMComm docs, not yet verified on hardware)
+## A-Com (implemented 2026-11-12, not yet verified on hardware)
+
+How the code works (`BitBeast.ino`, section "A-Com link battle"):
+- **Electrical.** `PIN_ACOM_OUT` (A2) is always an output: HIGH = idle (the divider holds the
+  line at ~2.9 V), LOW = active (pulls the line low through R1). The line is read with
+  `analogRead(A3)`; below 389 (1.9 V) = low. A digital read can't be used: 2.9 V is under
+  the 328P's 3.0 V logic-high threshold. This mirrors DMComm's `DComOutput(A2, A1)` +
+  `AnalogProngInput(A3)`; the notOE pin (A1) is not needed on an A-Com.
+- **Timings** are DMComm's `dmcomm_classic_communicator.cpp` values for signal type V
+  (send: 59 ms low, start 2083/917 µs, bit 1 = 2667/1667, bit 0 = 850/3167, then 400 µs idle;
+  receive windows and the 1800 µs bit threshold copied too; reply timeout 100 ms).
+- **Packets** (dmcomm.github.io/orig_battle, Humulos wiki "DMOG DigiROM format"): low byte =
+  two nibbles, high byte = its bitwise NOT. P1 = `(boost << 4) | slot`, P2 = `(version << 4)
+  | outcome`, outcome 1 = win / 2 = loss **from the sender's side**. Order: first's P1,
+  second's P1, first's P2, second's P2. The first player decides. Example `FC03-FD02` =
+  Agumon (slot 3), boost 0, then version 0 and "I lost".
+- **Going 1st:** `acomRun(true)` sends P1 once a second until the toy answers (C cancels,
+  `ACOM_LISTEN_S` timeout), rolls the result with the Ver.1 odds table `ACOM_ODDS` (Humulos,
+  16ths; boost difference adds 1/16 per level, a guess; overweight -2), sends P2, and
+  requires the toy's P2 reply.
+- **Going 2nd:** listens in 200 ms windows (checking C between them), replies P1, reads the
+  toy's P2, and replies P2 with the opposite outcome and our `ACOM_VERSION` (a real V1 would
+  echo the opponent's version instead).
+- Then `beginBattle()` plays the normal battle animation with `linkFight` set: `nextShot()`
+  never lets the loser land the final hit, so the animation ends as agreed, and
+  `finishBattle()` records it like any battle.
+- **Species → slot:** `Species.acomSlot` (3-14 = A-L, 0 = by stage: Rookie 3, Champion 7,
+  Ultimate 12). The user's table maps Agumon 3, Greymon 5, Numemon 11, MGreymonV 12,
+  Mamemon 13, Monzaemon 14 after the real Ver.1 chart. Mamemon is a Champion in BitBeast
+  but slot K is a Perfect, so it fights far above its stage over the link; the user may
+  want to change it. The opponent is drawn as the BitBeast species with the same slot,
+  else the first one of that stage.
+- **Evolution tool** reads/writes the new column (optional when reading, so old files still
+  load) and has an "A-Com slot" field. A draft saved before the column existed is set aside
+  under `bitbeast-evolution-old` so it can't save every slot as 0.
+
+Open questions for the hardware test: the 20th's mode for original battles; whether the
+receive windows need widening because `analogRead` takes ~112 µs per sample; and whether a
+real toy accepts version 0 against itself.
+
+### Research notes (from the DMComm docs, before implementing)
 
 - DMComm (by BladeSabre) is MIT licensed: https://github.com/dmcomm/dmcomm-project,
   https://github.com/dmcomm/dmcomm-arduino-lib. The classic A-Com uses an Arduino Nano,

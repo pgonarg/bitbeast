@@ -27,6 +27,17 @@
 
 #define OLED_ADDR 0x3C   // most 128x64 I2C SSD1306 modules; some use 0x3D
 
+// ---- A-Com: battle a real Digital Monster (original / 20th) ----
+// Circuit (same as the DMComm "A-Com"): PIN_ACOM_OUT -> R1 3.9k -> toy's signal prong;
+// the signal prong also goes to PIN_ACOM_IN and through R2 5.6k to GND; toy GND -> GND.
+// Never connect the toy straight to an output pin: the divider keeps it under ~3 V.
+#define ACOM_ENABLED   1
+#define PIN_ACOM_OUT   A2
+#define PIN_ACOM_IN    A3
+#define ACOM_VERSION   0      // which original model BitBeast claims to be: 0 = Ver.1 ... 4 = Ver.5
+#define ACOM_MAX_BOOST 4      // effort hearts sent as the "boost" (V.S. energy); 2 for early US units
+#define ACOM_LISTEN_S  30     // "Link: wait" gives up after this many seconds
+
 // ---- Gameplay tuning ----
 #define CALL_TIMEOUT_MIN      10    // ignoring a call this many game-minutes = 1 care mistake
 #define STARVE_DEATH_MIN      720   // hunger stuck at 0 this long (awake) -> dies

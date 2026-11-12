@@ -34,6 +34,7 @@ struct Species {
   uint8_t  baseWeight;    // grams
   uint16_t evolveMin;     // game-minutes in this form before it can evolve (0 = final form)
   uint8_t  lifespanDays;  // dies of old age at this age (0 = no limit)
+  uint8_t  acomSlot;      // A-Com: original V-pet slot 3..14 (A..L) it fights as; 0 = by stage
   const uint8_t* spr[2];  // frame 0 idle, frame 1 action
 };
 
@@ -81,5 +82,5 @@ struct SaveBlock {
 enum Mode : uint8_t {
   M_HOME, M_MSG, M_STATS, M_FEED, M_EAT, M_REFUSE, M_HAPPY, M_SAD,
   M_TRAIN, M_BATTLE, M_FLUSH, M_LIGHTS, M_HEAL, M_SETUP, M_CONFIRM,
-  M_CLOCKSET, M_CLOCK, M_EVOLVE, M_DEAD
+  M_CLOCKSET, M_CLOCK, M_EVOLVE, M_DEAD, M_LINK
 };

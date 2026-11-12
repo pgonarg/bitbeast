@@ -131,7 +131,7 @@ const STAGE_LABEL = ["Egg", "Fresh", "In-Training", "Rookie", "Champion", "Ultim
 const ANY = 255;
 
 // ---------------------------------------------------------------- model
-// species: {name, stage, hunger, strength, poop, sleep (null = NOSLEEP), wake, power, weight, evolveMin, life, spr0, spr1}
+// species: {name, stage, hunger, strength, poop, sleep (null = NOSLEEP), wake, power, weight, evolveMin, life, acom, spr0, spr1}
 // rules:   {from, to (species objects), minM, maxM, minT, maxT, minB, minWin, minWt, maxWt}
 let species = [], rules = [];
 let sprites = new Map();             // name -> {w,h,px}
@@ -141,7 +141,7 @@ let baselineBytes = null;
 // ---------------------------------------------------------------- parsing species.h
 function parseSpecies(text) {
   text = text.replace(/\r/g, "");
-  const rowRe = /\{\s*"([^"]*)"\s*,\s*(ST_\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*\{\s*SPR_(\w+)\s*,\s*SPR_(\w+)\s*\}\s*\}/g;
+  const rowRe = /\{\s*"([^"]*)"\s*,\s*(ST_\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(?:(\w+)\s*,\s*)?\{\s*SPR_(\w+)\s*,\s*SPR_(\w+)\s*\}\s*\}/g;
   const tableStart = text.indexOf("SPECIES[");
   if (tableStart < 0) throw new Error("No SPECIES[] table found");
   const tableEnd = text.indexOf("};", tableStart);
@@ -154,7 +154,7 @@ function parseSpecies(text) {
     if (st < 0) throw new Error("Unknown stage " + m[2]);
     sp.push({ name: m[1], stage: st, hunger: num(m[3]), strength: num(m[4]), poop: num(m[5]),
               sleep: num(m[6]), wake: num(m[7]), power: num(m[8]), weight: num(m[9]),
-              evolveMin: num(m[10]), life: num(m[11]), spr0: m[12], spr1: m[13] });
+              evolveMin: num(m[10]), life: num(m[11]), acom: m[12] ? num(m[12]) : 0, spr0: m[13], spr1: m[14] });
   }
   if (!sp.length) throw new Error("SPECIES[] table has no rows I can read");
 
@@ -215,10 +215,10 @@ function generate() {
     "};",
     "",
     "const Species SPECIES[SP_COUNT] PROGMEM = {",
-    "  // name, stage, hungerMin, strengthMin, poopMin, sleepHour, wakeHour, power, weight, evolveMin, lifespanDays, {frame0, frame1}",
+    "  // name, stage, hungerMin, strengthMin, poopMin, sleepHour, wakeHour, power, weight, evolveMin, lifespanDays, acomSlot, {frame0, frame1}",
     ...align(species.map(s => [`  {"${s.name}",`, STAGES[s.stage] + ",", s.hunger + ",", s.strength + ",", s.poop + ",",
       (s.sleep === null ? "NOSLEEP" : String(s.sleep)) + ",", s.wake + ",", s.power + ",", s.weight + ",",
-      s.evolveMin + ",", s.life + ",", `{SPR_${s.spr0},`, `SPR_${s.spr1}}},`])),
+      s.evolveMin + ",", s.life + ",", (s.acom || 0) + ",", `{SPR_${s.spr0},`, `SPR_${s.spr1}}},`])),
     "};",
     "",
   ];
@@ -570,6 +570,7 @@ function renderSpeciesPanel(P, s) {
   g.append(...numField("Battle power", s.power, v => s.power = v));
   g.append(...numField("Base weight", s.weight, v => s.weight = v, { max: 99, hint: "g" }));
   g.append(...numField("Lifespan", s.life, v => s.life = v, { hint: "days (0 = none)" }));
+  g.append(...numField("A-Com slot", s.acom || 0, v => s.acom = v, { max: 14, hint: "real V-pet slot 3-14 = A-L (0 = by stage)" }));
   P.append(g);
 
   const out = rulesFrom(s);
@@ -795,7 +796,7 @@ $("btnSpriteDraft").onclick = () => {
 $("btnNewSpecies").onclick = () => {
   const ref = selection && selection.kind === "species" ? selection.obj : null;
   const stage = ref ? Math.min(5, ref.stage + 1) : 3;
-  const tmpl = species.find(s => s.stage === stage) || { hunger: 59, strength: 59, poop: 120, sleep: 21, wake: 8, power: 20, weight: 25, evolveMin: 1440, life: 0, spr0: "EGG0", spr1: "EGG1" };
+  const tmpl = species.find(s => s.stage === stage) || { hunger: 59, strength: 59, poop: 120, sleep: 21, wake: 8, power: 20, weight: 25, evolveMin: 1440, life: 0, acom: 0, spr0: "EGG0", spr1: "EGG1" };
   const firstSpr = sprites.size ? [...sprites.keys()][0] : tmpl.spr0;
   const s = { ...tmpl, name: uniqueName("New"), stage, spr0: firstSpr, spr1: firstSpr };
   if (stage === 5) { s.evolveMin = 0; }
@@ -846,6 +847,12 @@ function loadDraft() {
     const d = JSON.parse(localStorage.getItem("bitbeast-evolution") || "null");
     if (!d) return false;
     if (d.spr) { sprites = new Map(Object.entries(d.spr).map(([k, s]) => [k, { w: s.w, h: s.h, px: Uint8Array.from(s.px, c => +c) }])); }
+    // A draft from before the A-Com slot column would save every slot as 0: set it aside
+    // (kept under "bitbeast-evolution-old") and start from the project files instead.
+    if (d.h && !d.h.includes("acomSlot") && location.protocol !== "file:") {
+      localStorage.setItem("bitbeast-evolution-old", JSON.stringify(d));
+      return false;
+    }
     if (d.h) { const r = parseSpecies(d.h); species = r.species; rules = r.rules; baselineBytes = d.baseline ?? null; return true; }
   } catch {}
   return false;

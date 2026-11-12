@@ -43,7 +43,8 @@
 #define FAST_OUTPUT(p) (*PIN_DDR(p) |= PIN_MASK(p))
 #define FAST_INPUT(p)  (*PIN_DDR(p) &= (uint8_t)~PIN_MASK(p))
 #define FAST_TOGGLE(p) (*PIN_IN(p) = PIN_MASK(p))     // writing PINx toggles on the 328P
-static_assert(PIN_BTN_A < 20 && PIN_BTN_B < 20 && PIN_BTN_C < 20 && PIN_LED < 20 && PIN_BUZZER < 20,
+static_assert(PIN_BTN_A < 20 && PIN_BTN_B < 20 && PIN_BTN_C < 20 && PIN_LED < 20 && PIN_BUZZER < 20 &&
+              PIN_ACOM_OUT < 20,
               "pins must be UNO pins D0-D13 / A0-A5 (14-19)");
 
 #define SAVE_MAGIC 0xB17C
@@ -86,6 +87,7 @@ int8_t   gDir;
 uint8_t  enemyId, myHp, enHp, hitChance;
 uint8_t  myMouth, enMouth;          // attack launch points (see mouthOf)
 bool     shotHit, battleWon;
+bool     linkFight;                 // this battle's result was settled over the A-Com link
 uint8_t  evoFrom, evoTo, eatType;
 uint8_t  clockH, clockM;
 
@@ -102,6 +104,7 @@ unsigned long btnChange, btnNextRepeat;
 // forward declarations (the Arduino IDE generates these itself; PlatformIO does not)
 void startTrain();
 void startBattle();
+void beginBattle(uint8_t hc);
 void startEvolve(uint8_t to);
 void saveNow();
 
@@ -693,7 +696,11 @@ void doAction(uint8_t a) {
       else if (asleep) showMsg(F("Zzz..."));
       else if (ill) setMode(M_REFUSE);
       else if (pet.hunger == 0) showMsg(F("Too hungry!"));
+#if ACOM_ENABLED
+      else setMode(M_LINK);
+#else
       else startBattle();
+#endif
       break;
     case 4:
       if (egg) showMsg(F("..."));
@@ -942,7 +949,12 @@ void startBattle() {
   if (pet.weight > sp.baseWeight * 2) myP -= myP / 5;     // too heavy = sluggish
   int16_t enP = pgm_read_byte(&SPECIES[enemyId].power) + rndRange(0, 13);
   int16_t hc = (int32_t)myP * 100 / (myP + enP);
-  hitChance = constrain(hc, 15, 85);
+  linkFight = false;
+  beginBattle(constrain(hc, 15, 85));
+}
+
+void beginBattle(uint8_t hc) {
+  hitChance = hc;
   myHp = enHp = 3;
   myMouth = mouthOf(pet.species);
   enMouth = mouthOf(enemyId);
@@ -955,6 +967,8 @@ void nextShot(uint8_t who) {
   phaseFlag = false;
   uint8_t r = rnd(100);
   shotHit = (who == 1) ? (r < hitChance) : (r >= hitChance);
+  // a linked battle must end the way the two devices agreed: the loser never lands the last hit
+  if (linkFight && (who == 1 ? !battleWon && enHp == 1 : battleWon && myHp == 1)) shotHit = false;
   play(MEL_SHOOT);
 }
 
@@ -1042,6 +1056,201 @@ void modeBattle(uint8_t ev) {
   if (myVis) drawMon(pet.species, myFr, 0, myY, true);
   if (enVis) drawMon(enemyId, enFr, 96, enY, false);
 }
+
+// ---------------------------------------------------------------- A-Com link battle
+#if ACOM_ENABLED
+// Battles a real Digital Monster (original, or a newer model's "other battle") through the
+// A-Com circuit, following the DMComm project by BladeSabre (MIT):
+// https://dmcomm.github.io/orig_battle/  https://wiki.humulos.com/wiki/DMOG_DigiROM_format
+//
+// The two devices take turns on one wire that idles high (~2.9 V). Each packet starts with the
+// line pulled low for ~59 ms, then a start bit and 16 data bits, LSB first, as pulse widths.
+// The low byte holds two nibbles and the high byte is its bitwise NOT (a check):
+//   packet 1: (boost << 4) | slot          slot 3..14 = A..L on the growth chart
+//   packet 2: (version << 4) | outcome     outcome 1 = win, 2 = loss, for the sender
+// Order: first P1, second P1, first P2, second P2. The side that goes first decides who won.
+
+#define ACOM_LOW_LEVEL 389          // analogRead below this (1.9 V) = line pulled low
+
+// Odds out of 16 that the row slot beats the column slot (Ver.1 table, Humulos wiki),
+// two columns per byte: A..L = 3..14.
+#define OD(a, b) (uint8_t)((a) << 4 | (b))
+const uint8_t ACOM_ODDS[12][6] PROGMEM = {
+  {OD(8, 8),   OD(2, 3),   OD(2, 3),   OD(2, 3),   OD(7, 1),   OD(1, 1)},     // A
+  {OD(8, 8),   OD(2, 3),   OD(2, 3),   OD(2, 3),   OD(7, 1),   OD(1, 1)},     // B
+  {OD(15, 15), OD(8, 11),  OD(9, 11),  OD(7, 11),  OD(13, 3),  OD(3, 3)},     // C
+  {OD(13, 13), OD(5, 8),   OD(5, 9),   OD(5, 7),   OD(11, 2),  OD(2, 2)},     // D
+  {OD(15, 15), OD(7, 11),  OD(8, 11),  OD(9, 11),  OD(13, 3),  OD(3, 3)},     // E
+  {OD(13, 13), OD(5, 7),   OD(5, 8),   OD(5, 9),   OD(11, 2),  OD(2, 2)},     // F
+  {OD(15, 15), OD(9, 11),  OD(7, 11),  OD(8, 11),  OD(13, 3),  OD(3, 3)},     // G
+  {OD(13, 13), OD(5, 9),   OD(5, 7),   OD(5, 8),   OD(11, 2),  OD(2, 2)},     // H
+  {OD(9, 9),   OD(3, 5),   OD(3, 5),   OD(3, 5),   OD(8, 1),   OD(1, 1)},     // I
+  {OD(15, 15), OD(13, 14), OD(13, 14), OD(13, 14), OD(15, 8),  OD(5, 5)},     // J
+  {OD(15, 15), OD(13, 14), OD(13, 14), OD(13, 14), OD(15, 11), OD(8, 5)},     // K
+  {OD(15, 15), OD(13, 14), OD(13, 14), OD(13, 14), OD(15, 11), OD(11, 8)},    // L
+};
+#undef OD
+
+uint16_t acomFoe;                   // the opponent's packet 1 (boost, slot)
+uint32_t acomEdgeT;                 // micros() at the last level change seen
+
+bool acomLow() { return analogRead(PIN_ACOM_IN) < ACOM_LOW_LEVEL; }
+
+// Waits for the line to go low (true) or idle (false). Returns how long the level that just
+// ended lasted, in µs, if that was between minUs and maxUs; otherwise 0.
+uint32_t acomPhase(bool low, uint32_t minUs, uint32_t maxUs) {
+  for (;;) {
+    uint32_t now = micros(), d = now - acomEdgeT;
+    if (acomLow() == low) { acomEdgeT = now; return d >= minUs ? d : 0; }
+    if (d > maxUs) return 0;
+  }
+}
+
+// Receives one packet. waitUs: how long the sender may take to start.
+bool acomRecv(uint16_t& out, uint32_t waitUs) {
+  acomEdgeT = micros();
+  if (!acomPhase(true, 0, waitUs)) return false;            // the sender pulls the line low...
+  if (!acomPhase(false, 30000, 90000)) return false;        // ...for ~59 ms
+  if (!acomPhase(true, 1400, 2500)) return false;           // start bit: ~2.1 ms high,
+  if (!acomPhase(false, 300, 1400)) return false;           //            ~0.9 ms low
+  uint16_t bits = 0;
+  for (uint8_t i = 0; i < 16; i++) {
+    uint32_t d = acomPhase(true, 400, 3400);                // high ~0.85 ms = 0, ~2.7 ms = 1
+    if (!d) return false;
+    bits >>= 1;
+    if (d > 1800) bits |= 0x8000;
+    if (!acomPhase(false, 800, 4000)) return false;         // then low for the rest of the bit
+  }
+  out = bits;
+  return true;
+}
+
+void acomDrive(bool low, uint16_t us) {
+  FAST_WRITE(PIN_ACOM_OUT, !low);
+  delayMicroseconds(us);
+}
+
+void acomSend(uint16_t bits) {
+  acomDrive(false, 3000);
+  FAST_LOW(PIN_ACOM_OUT);
+  delay(59);
+  acomDrive(false, 2083);
+  acomDrive(true, 917);
+  for (uint8_t i = 0; i < 16; i++, bits >>= 1) {
+    bool one = bits & 1;
+    acomDrive(false, one ? 2667 : 850);
+    acomDrive(true, one ? 1667 : 3167);
+  }
+  acomDrive(false, 400);            // back to idle
+}
+
+uint16_t acomPack(uint8_t hi, uint8_t lo) {
+  uint8_t b = (hi << 4) | (lo & 15);
+  return (uint16_t)(uint8_t)~b << 8 | b;
+}
+bool acomValid(uint16_t p) { return (uint8_t)(p >> 8) == (uint8_t)~p; }
+
+// The growth-chart slot a species fights as: its acomSlot, or a default for its stage.
+uint8_t acomSlotOf(uint8_t id) {
+  uint8_t s = pgm_read_byte(&SPECIES[id].acomSlot);
+  if (s >= 3 && s <= 14) return s;
+  uint8_t st = pgm_read_byte(&SPECIES[id].stage);
+  return st >= ST_ULTIMATE ? 12 : st == ST_CHAMPION ? 7 : 3;
+}
+
+uint8_t acomBoost() { return pet.effort < ACOM_MAX_BOOST ? pet.effort : ACOM_MAX_BOOST; }
+
+// Going first, BitBeast rolls the result the way an original V-pet does: by the slot table.
+bool acomDecide(uint8_t mySlot) {
+  uint8_t ts = acomFoe & 15, tb = (acomFoe >> 4) & 15;
+  if (ts < 3) ts = 3;
+  if (ts > 14) ts = 14;
+  ts -= 3;
+  uint8_t b = pgm_read_byte(&ACOM_ODDS[mySlot - 3][ts >> 1]);
+  int8_t odds = (ts & 1) ? (b & 15) : (b >> 4);
+  odds += (int8_t)acomBoost() - (int8_t)tb;      // 1/16 per boost level: a guess, not measured
+  if (pet.weight > sp.baseWeight * 2) odds -= 2; // too heavy = sluggish, as in CPU battles
+  return (int8_t)rnd(16) < constrain(odds, 1, 15);
+}
+
+// True if C is pressed or the time is up: ends the waiting loops below.
+bool acomGiveUp(unsigned long start) {
+  return (readRaw() & BTN_C) || millis() - start > ACOM_LISTEN_S * 1000UL;
+}
+
+// One complete exchange. The screen is frozen meanwhile: the pulse timing must not be
+// interrupted by a display update. first = BitBeast starts and decides the result.
+// Returns 0 = done (battleWon holds the result), 1 = no answer or cancelled, 2 = garbled.
+uint8_t acomRun(bool first) {
+  uint8_t mySlot = acomSlotOf(pet.species);
+  uint16_t mine = acomPack(acomBoost(), mySlot), res;
+  unsigned long start = millis();
+  melPtr = NULL;
+  noTone(PIN_BUZZER);
+  if (first) {
+    for (;;) {                                     // knock once a second until the toy answers
+      acomSend(mine);
+      if (acomRecv(acomFoe, 100000UL)) break;
+      unsigned long t = millis();
+      while (millis() - t < 1000) if (acomGiveUp(start)) return 1;
+    }
+    if (!acomValid(acomFoe)) return 2;
+    battleWon = acomDecide(mySlot);
+    acomSend(acomPack(ACOM_VERSION, battleWon ? 1 : 2));
+    if (!acomRecv(res, 100000UL) || !acomValid(res)) return 2;   // the toy's reply
+  } else {
+    while (!acomRecv(acomFoe, 200000UL)) if (acomGiveUp(start)) return 1;
+    if (!acomValid(acomFoe)) return 2;
+    acomSend(mine);
+    if (!acomRecv(res, 100000UL) || !acomValid(res)) return 2;
+    uint8_t o = res & 15;                          // the toy's result, from its side
+    if (o != 1 && o != 2) return 2;
+    battleWon = o == 2;
+    acomSend(acomPack(ACOM_VERSION, battleWon ? 1 : 2));
+  }
+  return 0;
+}
+
+// The BitBeast species that stands in for the opponent: same slot, else same stage.
+uint8_t acomFoeSpecies() {
+  uint8_t slot = acomFoe & 15;
+  uint8_t st = slot >= 12 ? ST_ULTIMATE : slot >= 5 ? ST_CHAMPION : ST_ROOKIE;
+  for (uint8_t i = 0; i < SP_COUNT; i++)
+    if (slot >= 3 && pgm_read_byte(&SPECIES[i].acomSlot) == slot) return i;
+  for (uint8_t i = 0; i < SP_COUNT; i++)
+    if (pgm_read_byte(&SPECIES[i].stage) == st) return i;
+  return pet.species;
+}
+
+// Battle menu: a CPU battle, or a link battle going first or second.
+void modeLink(uint8_t ev) {
+  if (ev & BTN_A) sub = sub < 2 ? sub + 1 : 0;
+  if (ev & BTN_C) { setMode(M_HOME); return; }
+  if (ev & BTN_B) {
+    if (sub == 0) { startBattle(); return; }
+    display.clearDisplay();
+    textCenter(4, 1, F("LINK"));
+    textCenter(28, 1, sub == 1 ? F("Calling V-pet...") : F("Waiting for V-pet"));
+    textCenter(48, 1, F("C: cancel"));
+    display.display();
+    uint8_t r = acomRun(sub == 1);
+    btnStable = btnLastRaw = readRaw();            // a held C must not count as a new press
+    wakeScreen();
+    if (r == 0) {
+      enemyId = acomFoeSpecies();
+      linkFight = true;
+      beginBattle(battleWon ? 65 : 35);
+    } else {
+      showMsg(r == 1 ? F("No link") : F("Link error"));
+    }
+    return;
+  }
+  textCenter(4, 1, F("BATTLE"));
+  option(10, 20, F("vs CPU"), sub == 0);
+  option(10, 33, F("Link: go 1st"), sub == 1);
+  option(10, 46, F("Link: go 2nd"), sub == 2);
+}
+#endif
 
 // ---------------------------------------------------------------- flush / lights / heal
 void modeFlush(uint8_t ev) {
@@ -1247,6 +1456,9 @@ void runMode(uint8_t ev, uint8_t rep) {
     case M_CLOCK:    modeClock(ev); break;
     case M_EVOLVE:   modeEvolve(ev); break;
     case M_DEAD:     modeDead(ev); break;
+#if ACOM_ENABLED
+    case M_LINK:     modeLink(ev); break;
+#endif
   }
 }
 
@@ -1259,7 +1471,7 @@ void frame() {
 
   unsigned long idle = millis() - lastInput;
   if (idle > 30000UL && (mode == M_STATS || mode == M_FEED || mode == M_LIGHTS ||
-                         mode == M_SETUP || mode == M_CONFIRM || mode == M_MSG)) {
+                         mode == M_SETUP || mode == M_CONFIRM || mode == M_MSG || mode == M_LINK)) {
     setMode(M_HOME);
   }
   if (DIM_AFTER_MS && !dimmed && idle > DIM_AFTER_MS) { display.dim(true); dimmed = true; }
@@ -1364,6 +1576,10 @@ void setup() {
 #endif
   FAST_OUTPUT(PIN_BUZZER);
   FAST_OUTPUT(PIN_LED);
+#if ACOM_ENABLED
+  FAST_HIGH(PIN_ACOM_OUT);          // idle: the divider holds the toy's line at ~2.9 V
+  FAST_OUTPUT(PIN_ACOM_OUT);
+#endif
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     for (;;) { FAST_TOGGLE(PIN_LED); delay(150); }   // no display / no RAM

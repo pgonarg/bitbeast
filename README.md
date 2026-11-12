@@ -40,6 +40,7 @@ vpet/
 | Button C (back) | D7 |
 | Piezo buzzer (+) | D6 (buzzer − to GND, a passive buzzer sounds best) |
 | Call LED | D13 (the on-board LED, nothing to wire) |
+| A-Com (optional) | A2 and A3, see "Battling a real V-pet" below |
 
 **Button wiring.** By default each button goes **between its pin and GND**, with no
 resistors (the code turns on the internal pull-ups). If you already built a Tamaguino with
@@ -128,7 +129,7 @@ The eight icons, left to right:
 | 📊 Stats | name, stage, age, weight → hunger → strength → effort → battle record → care log |
 | 🍖 Feed | **Meat** = +1 hunger heart, +1 g. **Vitamin** = +1 strength heart, +2 g |
 | 🏋 Train | timing mini-game, see below |
-| ⚔ Battle | fight a random wild monster (Rookie and above) |
+| ⚔ Battle | **vs CPU**: a random wild monster · **Link: go 1st / go 2nd**: a real V-pet over the A-Com (Rookie and above) |
 | 💧 Flush | clean up the poop |
 | 💡 Lights | turn the lights off when it sleeps |
 | ✚ Heal | medicine for sickness or injury (sometimes needs 2 doses) |
@@ -157,6 +158,8 @@ stops the repeat beeps. The call stays on screen until you fix the cause.
   chance depends on species power, strength hearts, effort hearts, and whether it is
   overweight. Each battle costs 4 g. After a battle it may be **injured** (10% if it won,
   30% if it lost). Injured or sick pets refuse to train or battle.
+- **Link battles** count in the battle record and toward evolution exactly like CPU
+  battles, and can injure the pet the same way.
 - **Death.** It dies if any of these happen:
   - it starves (0 hunger for 12 h awake)
   - it is left sick or injured for 6 h
@@ -192,6 +195,45 @@ Champion -> Ultimate: 15+ battles with an 80%+ win rate, fought as that Champion
 ```
 
 It won't evolve while asleep, sick or injured. It waits until it is awake and healthy.
+
+## Battling a real V-pet (A-Com)
+
+BitBeast can battle an original **Digital Monster** (Ver.1-5) through the same two-resistor
+circuit as the DMComm "A-Com". It plays the original battle protocol: the protocol, the
+timings and the circuit come from the DMComm project by BladeSabre
+(https://dmcomm.github.io), and the win-odds table from the Humulos wiki. Newer models
+that offer an "other battle" or original-battle mode use the same protocol. **The 20th
+Anniversary model has not been tried yet.**
+
+```
+ A2 ──[R1 3.9k]──┬── toy signal prong
+ A3 ─────────────┤
+                 └──[R2 5.6k]── GND ── toy GND prong
+```
+
+Similar values are fine (keep R1 a little smaller than R2). **Never connect the toy's prong
+straight to a pin:** the divider keeps the line under 3 V.
+
+To battle, plug the toy in, choose ⚔ Battle and then:
+
+- **Link: go 1st.** Put the toy in its battle mode, waiting for a partner, then press B
+  on BitBeast. BitBeast calls once a second, and when the toy answers it decides the result
+  the way an original V-pet would.
+- **Link: go 2nd.** Press B on BitBeast first; it waits up to 30 s. Then start the battle
+  on the toy. The toy decides the result.
+
+The screen freezes while the two talk, and **C** cancels the wait. "No link" means nobody
+answered; "Link error" means a garbled message (check the wiring and the ground). After a
+link, BitBeast plays the battle with the result both devices agreed on.
+
+**What BitBeast sends.** On the original toys each monster has a *slot* on the growth chart:
+3-14, written A-L (for Ver.1, A = Agumon, C = Greymon, I = Numemon, J = Metal Greymon, K =
+Mamemon, L = Monzaemon). Each species has an **A-Com slot** (the `acomSlot` column in
+`species.h`, or the "A-Com slot" field in the evolution tool). 0 means "by stage": Rookie A,
+Champion E, Ultimate J. The opponent is shown as the BitBeast species with the same slot,
+or one of the same stage. **Effort hearts** are sent as the "boost" (the V.S. energy from
+protein overdoses on the toy), up to `ACOM_MAX_BOOST`. In `config.h`, `ACOM_VERSION` sets
+which version BitBeast claims to be, and `ACOM_ENABLED 0` removes the whole feature.
 
 ## Time, clock and saving
 
@@ -264,9 +306,9 @@ It won't evolve while asleep, sick or injured. It waits until it is awake and he
 The firmware compiles cleanly for the UNO (arduino:avr 1.8.8, Adafruit SSD1306 2.5.17,
 Adafruit GFX 1.13.0):
 
-- **Flash (game mode):** 26,434 of 32,256 bytes (82%), leaving about 5.8 KB for new
-  features and species. Kiosk mode is 15,152 bytes.
-- **RAM (game mode):** 1,543 of 2,048 bytes. The screen's 1 KB frame buffer is now a fixed
+- **Flash (game mode):** 28,320 of 32,256 bytes (87%), leaving about 3.9 KB for new
+  features and species. The A-Com takes about 1.9 KB. Kiosk mode is 15,174 bytes.
+- **RAM (game mode):** 1,551 of 2,048 bytes. The screen's 1 KB frame buffer is now a fixed
   array, so this figure is the real total, and about 500 bytes are left for the stack.
 - **RAM:** 528 bytes of globals, plus the 1 KB frame buffer at runtime, leaves about 500
   bytes of stack.
@@ -281,7 +323,7 @@ tools/arduino-cli/arduino-cli.exe compile --fqbn arduino:avr:uno BitBeast
 
 Possible next steps that still fit on an UNO:
 
-- link battles between two UNOs over a 1-wire serial cable
+- BitBeast-vs-BitBeast battles over the A-Com circuit (same protocol)
 - a second training mini-game
 - more species and branches
 - an RTC module (DS3231) so time keeps running while unplugged
