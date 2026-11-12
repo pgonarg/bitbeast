@@ -17,6 +17,11 @@ A fully featured V-pet in the style of the 1997 Digital Monster, running on an
 The project started from a clone of Tamaguino (`tamaguino/`, reference only; GPLv3, so
 BitBeast is GPLv3 too).
 
+**Repository:** https://github.com/pgonarg/bitbeast (private), branch `main`, pushed
+2026-11-12. `.gitignore` leaves out `tools/arduino-cli/`, `tamaguino/` and `.claude/`.
+Pushing works through Git Credential Manager (browser sign-in), so run `git push` in the
+user's Terminal panel if it needs to sign in again. Commit or push only when the user asks.
+
 ## Hardware status
 
 | Item | State |
